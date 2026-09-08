@@ -85,6 +85,7 @@ st.markdown("""
     /* 手機上縮短圖表高度，減少單次滑動需要經過的圖表區域 */
     [data-testid="stPlotlyChart"] iframe {
         max-height: 480px;
+        touch-action: pan-y;
     }
 }
 
@@ -1689,15 +1690,31 @@ symbol = normalize_code(
 
 period_years = st.sidebar.select_slider(
     "📅 圖表觀察期間",
-    options=[1, 2, 3, 4, 5],
-    value=1,
-    format_func=lambda x: f"{x} 年"
+    options=[
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0
+    ],
+    value=1.0,
+    format_func=lambda x: f"{x:g} 年"
 )
 
-st.sidebar.caption("預設 1 年，可切換 2／3／4／5 年")
+st.sidebar.caption(
+    "預設 1 年，可切換 1.5／2／2.5／3／3.5／4／4.5／5 年"
+)
 
-# 預設帶入你的 FinMind Token
-MY_FINMIND_TOKEN = ""
+# FinMind Token 建議放在 Streamlit Secrets：
+# .streamlit/secrets.toml
+# FINMIND_TOKEN = "你的 Token"
+#
+# 若未設定 Secret，側邊欄仍可手動輸入 Token。
+MY_FINMIND_TOKEN = st.secrets.get("FINMIND_TOKEN", "")
 
 finmind_token = st.sidebar.text_input(
     "FinMind Token (籌碼/市值前500需要)", 
