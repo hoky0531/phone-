@@ -1,0 +1,3 @@
+taiwan-stock-mobile/
+├── app.py              (手機版的 Python 程式碼)
+└── requirements.txt    (告訴 Streamlit 需要安裝哪些套件)
