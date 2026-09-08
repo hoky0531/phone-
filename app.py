@@ -72,6 +72,29 @@ st.markdown("""
     [data-testid="stHorizontalBlock"] {
         gap: .45rem;
     }
+
+    /* 手機：圖表與文字/按鈕拉開距離，避免上下滑動時誤觸圖表 */
+    [data-testid="stPlotlyChart"] {
+        margin: .75rem 0 1.25rem 0;
+        padding: .35rem;
+        border: 1px solid #D9D9D9;
+        border-radius: 10px;
+        background: #FFFFFF;
+    }
+
+    /* 手機上縮短圖表高度，減少單次滑動需要經過的圖表區域 */
+    [data-testid="stPlotlyChart"] iframe {
+        max-height: 480px;
+    }
+}
+
+/* 桌面與手機都保留清楚的圖表外框 */
+[data-testid="stPlotlyChart"] {
+    border: 1px solid #D9D9D9;
+    border-radius: 10px;
+    padding: .25rem;
+    background: #FFFFFF;
+    box-sizing: border-box;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1007,13 +1030,27 @@ def create_lohas_chart(data):
         paper_bgcolor="white",
         plot_bgcolor="white",
         hovermode="x unified",
-        height=620,
+        dragmode=False,
+        height=520,
         margin=dict(
             l=10,
             r=55,
             t=35,
-            b=25
+            b=35
         ),
+        shapes=[
+            dict(
+                type="rect",
+                xref="paper",
+                yref="paper",
+                x0=0,
+                y0=0,
+                x1=1,
+                y1=1,
+                line=dict(color="#D9D9D9", width=1),
+                fillcolor="rgba(0,0,0,0)"
+            )
+        ],
         legend=dict(
             orientation="h",
             y=1.03,
@@ -1651,23 +1688,16 @@ symbol = normalize_code(
 )
 
 period_years = st.sidebar.select_slider(
-    "樂活五線譜觀察年數",
-    options=[
-        1.0,
-        1.5,
-        2.0,
-        2.5,
-        3.0,
-        3.5,
-        4.0,
-        4.5,
-        5.0
-    ],
-    value=3.5
+    "📅 圖表觀察期間",
+    options=[1, 2, 3, 4, 5],
+    value=1,
+    format_func=lambda x: f"{x} 年"
 )
 
+st.sidebar.caption("預設 1 年，可切換 2／3／4／5 年")
+
 # 預設帶入你的 FinMind Token
-MY_FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiaG9reTA1MzFAZ21haWwuY29tIiwiZW1haWwiOiJob2t5MDUzMUBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.t9fh1y8oPJg3arJDD4mI-DD160GAVQrdubaIeQjBVLE"
+MY_FINMIND_TOKEN = ""
 
 finmind_token = st.sidebar.text_input(
     "FinMind Token (籌碼/市值前500需要)", 
@@ -1788,7 +1818,9 @@ with tab1:
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
-                    "responsive": True
+                    "responsive": True,
+                    "scrollZoom": False,
+                    "doubleClick": False
                 }
             )
 
@@ -1885,7 +1917,9 @@ with tab2:
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
-                    "responsive": True
+                    "responsive": True,
+                    "scrollZoom": False,
+                    "doubleClick": False
                 }
             )
 
@@ -1898,7 +1932,9 @@ with tab2:
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
-                    "responsive": True
+                    "responsive": True,
+                    "scrollZoom": False,
+                    "doubleClick": False
                 }
             )
 
