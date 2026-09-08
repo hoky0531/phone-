@@ -1,4 +1,11 @@
 import streamlit as st
+
+# 防範瀏覽器自動翻譯導致 removeChild 崩潰錯誤
+st.markdown("""
+    <head>
+        <meta name="google" content="notranslate">
+    </head>
+""", unsafe_allow_html=True)
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -1659,11 +1666,14 @@ period_years = st.sidebar.select_slider(
     value=3.5
 )
 
+# 預設帶入你的 FinMind Token
+MY_FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiaG9reTA1MzFAZ21haWwuY29tIiwiZW1haWwiOiJob2t5MDUzMUBnbWFpbC5jb20iLCJ0b2tlbl92ZXJzaW9uIjowfQ.t9fh1y8oPJg3arJDD4mI-DD160GAVQrdubaIeQjBVLE"
+
 finmind_token = st.sidebar.text_input(
-    "FinMind Token（籌碼／市值前500需要）",
+    "FinMind Token (籌碼/市值前500需要)", 
+    value=MY_FINMIND_TOKEN, 
     type="password"
 )
-
 stock_name = name_map.get(
     symbol,
     ""
