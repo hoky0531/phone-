@@ -1,51 +1,37 @@
-import streamlit as st
+import warnings
+warnings.filterwarnings("ignore")
 
-# 防範瀏覽器自動翻譯導致 removeChild 崩潰錯誤
-st.markdown("""
-    <head>
-        <meta name="google" content="notranslate">
-    </head>
-""", unsafe_allow_html=True)
-import yfinance as yf
-import pandas as pd
+from datetime import datetime, timedelta
+
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
+import streamlit as st
+import yfinance as yf
+from scipy.signal import argrelextrema
+
+# ============================================================
+# 樂活五線譜與智慧選股系統
+# ============================================================
 
 st.set_page_config(
-    page_title="台股樂活五線譜與智慧選股",
+    page_title="樂活五線譜與智慧選股系統",
+    page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
-
-# =========================================================
-# 手機版 CSS
-# =========================================================
 
 st.markdown("""
 <style>
-.block-container {
-    padding: 1rem 1rem 3rem 1rem;
-    max-width: 1500px;
-}
-
-[data-testid="stMetricValue"] {
-    font-size: clamp(1.1rem, 4vw, 2rem);
-}
-
-[data-testid="stDataFrame"] {
-    font-size: 0.9rem;
-}
-
 @media (max-width: 768px) {
-
     .block-container {
-        padding: .65rem .55rem 2rem .55rem;
+        padding: .65rem .55rem 1.5rem .55rem;
     }
 
     h1 {
-        font-size: 1.45rem !important;
+        font-size: 1.55rem !important;
     }
 
     h2 {
@@ -53,89 +39,158 @@ st.markdown("""
     }
 
     h3 {
-        font-size: 1.1rem !important;
+        font-size: 1.05rem !important;
     }
 
-    .stButton button {
-        min-height: 2.8rem;
+    .stButton > button {
         width: 100%;
+        min-height: 2.6rem;
     }
 
-    .stSelectbox,
-    .stSlider,
-    .stRadio,
-    .stTextInput,
-    .stTextArea {
-        font-size: .95rem;
+    .stTabs [data-baseweb="tab"] {
+        font-size: .82rem;
+        padding: 0 .45rem;
     }
 
-    [data-testid="stHorizontalBlock"] {
-        gap: .45rem;
+    div[data-testid="stMetric"] {
+        padding: .4rem .2rem;
     }
-
-    /* 手機：圖表與文字/按鈕拉開距離，避免上下滑動時誤觸圖表 */
-    [data-testid="stPlotlyChart"] {
-        margin: .75rem 0 1.25rem 0;
-        padding: .35rem;
-        border: 1px solid #D9D9D9;
-        border-radius: 10px;
-        background: #FFFFFF;
-    }
-
-    /* 手機上縮短圖表高度，減少單次滑動需要經過的圖表區域 */
-    [data-testid="stPlotlyChart"] iframe {
-        max-height: 480px;
-        touch-action: pan-y;
-    }
-}
-
-/* 桌面與手機都保留清楚的圖表外框 */
-[data-testid="stPlotlyChart"] {
-    border: 1px solid #D9D9D9;
-    border-radius: 10px;
-    padding: .25rem;
-    background: #FFFFFF;
-    box-sizing: border-box;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 台股樂活五線譜與智慧選股系統")
+FINMIND_API = "https://api.finmindtrade.com/api/v4/data"
 
-FINMIND_DATA_URL = "https://api.finmindtrade.com/api/v4/data"
+# ============================================================
+# 常用股票清單
+# ============================================================
 
-FINMIND_BRANCH_AGG_URL = (
-    "https://api.finmindtrade.com/api/v4/"
-    "taiwan_stock_trading_daily_report_secid_agg"
-)
-
-
-# =========================================================
-# 常用台股清單
-# =========================================================
-
-DEFAULT_STOCKS_TEXT = """
-2330,2454,2308,2317,3711,2881,2383,2303,2882,3037,2891,2382,2059,2345,2327,3017,6669,2885,2887,2886,2884,2880,2890,2892,2834,5880,2204,2357,2395,2408,2603,2609,2615,2912,1216,1301,1303,1326,6505,2002,3045,4904,2412,5876,2801,3231,2379,3653,3008,5274,2610,2618,2324,2353,2356,2377,2328,4938,2347,2449,2360,3443,6415,3661,3034,3035,2409,3481,6116,2371,1101,1102,1402,1504,1605,1717,1722,1802,1904,2105,2201,2542,2605,2606,2611,2809,2812,2838,2845,2851,2855,2867,2883,2888,2889,5871,6005,9904,9910,9921,9945,8454,2727,2915,5904,6592,6770,8046,6239,3189,4958,6213,6271,2439,2313,2368,3044,2367,5483,6488,3532,2455,2474,4961,3014,2376,2352,2354,4919,6269,3023,2421,1513,1519,1503,1609,1608,2014,2027,2013,5269,6414,8299,6223,3529,6147,8069,5347,3264,4174,1103,1104,1108,1210,1215,1217,1218,1227,1229,1231,1232,1233,1304,1305,1307,1308,1309,1310,1312,1313,1314,1315,1319,1321,1323,1409,1434,1440,1444,1447,1455,1476,1477,1507,1521,1522,1524,1525,1530,1532,1536,1537,1560,1582,1590,1611,1612,1615,1701,1702,1704,1707,1708,1710,1711,1712,1713,1714,1718,1720,1723,1726,1730,1732,1733,1736,1762,1773,1789,1795,1806,1808,1902,1905,1907,1909,2006,2009,2010,2012,2015,2017,2020,2022,2023,2028,2029,2030,2031,2032,2034,2038,2062,2101,2103,2104,2106,2108,2109,2114,2206,2207,2227,2231,2233,2239,2305,2312,2314,2316,2323,2329,2331,2332,2337,2338,2340,2342,2348,2349,2351,2355,2359,2362,2363,2364,2365,2373,2374,2375,2380,2385,2387,2388,2390,2392,2393,2397,2399,2401,2402,2404,2405,2406,2413,2414,2415,2417,2419,2420,2426,2427,2428,2430,2431,2433,2434,2436,2438,2440,2441,2442,2444,2450,2451,2453,2456,2457,2458,2459,2460,2461,2462,2464,2466,2467,2468,2471,2472,2476,2477,2478,2480,2481,2482,2483,2484,2485,2486,2488,2489,2492,2493,2495,2496,2497,2498,2501,2504,2505,2506,2509,2511,2514,2515,2516,2520,2524,2527,2528,2530,2534,2535,2536,2537,2538,2539,2540,2543,2545,2546,2547,2548,2597,2601,2607,2612,2613,2614,2616,2617,2630,2633,2634,2636,2637,2642,2701,2702,2704,2705,2706,2707,2712,2722,2723,2731,2739,2753,2816,2820,2832,2836,2841,2849,2850,2852,2897,2901,2903,2904,2905,2906,2908,2913,3002,3003,3004,3005,3006,3010,3011,3013,3015,3016,3018,3019,3021,3022,3024,3025,3026,3027,3028,3029,3030,3031,3032,3033,3036,3038,3040,3041,3042,3043,3046,3047,3048,3049,3050,3051,3052,3054,3055,3057,3058,3059,3060,3062,3090,3094,3130,3149,3164,3189,3209,3229,3231,3305,3308,3311,3312,3321,3338,3356,3376,3380,3406,3413,3450,3454,3481,3494,3501,3504,3515,3533,3535,3545,3550,3557,3576,3591,3593,3596
+COMMON_STOCKS_TEXT = """
+2330 2454 2308 2317 3711 2881 2383 2303 2882 3037 2891 2382 2059 2345
+2327 3017 6669 2885 2887 2886 2884 2880 2890 2892 2834 5880 2204 2357
+2395 2408 2603 2609 2615 2912 1216 1301 1303 1326 6505 2002 3045 4904
+2412 5876 2801 3231 2379 3653 3008 5274 2610 2618 2324 2353 2356 2377
+2328 4938 2347 2449 2360 3443 6415 2376 2385 2392 2404 2409 2439 2474
+2481 2492 2498 2605 2617 2727 2823 2883 2888 2897 2915 3005 3034 3036
+3035 3044 3090 3167 3406 3702 3706 3707 3711 3714 4938 4961 5269 5278
+5871 5876 6239 6414 6488 8046 2352 2354 2356 2357 2359 2362 2367 2368
+2376 2382 2385 2387 2393 2401 2402 2408 2412 2421 2423 2436 2439 2441
+2442 2449 2451 2454 2458 2474 2476 2480 2481 2485 2492 2498 2501 2504
+2505 2506 2515 2520 2524 2528 2534 2535 2536 2537 2540 2542 2543 2545
+2546 2547 2548 2597 2601 2603 2605 2606 2607 2608 2610 2611 2612 2613
+2615 2617 2618 2637 2642 2701 2702 2722 2723 2727 2801 2809 2812 2820
+2823 2834 2836 2838 2845 2849 2850 2851 2852 2855 2867 2880 2881 2882
+2883 2884 2885 2886 2887 2888 2889 2890 2891 2892 2897 2903 2912 2913
+2915 3002 3003 3004 3005 3006 3008 3010 3014 3015 3016 3017 3019 3022
+3023 3024 3025 3026 3027 3028 3029 3030 3031 3032 3033 3034 3035 3036
+3037 3038 3042 3044 3045 3046 3047 3048 3049 3051 3054 3055 3056 3057
+3058 3059 3060 3062 3090 3167 3231 3305 3406 3443 3501 3530 3532 3653
+3661 3702 3706 3707 3711 3712 3714 4904 4906 4915 4919 4938 4942 4958
+4960 4961 4977 4989 4994 5258 5269 5274 5278 5347 5484 5536 5607 5871
+5876 5880 6120 6239 6414 6415 6456 6477 6488 6505 6515 6669 6690 6770
+8046 8112 8210 9904 9910 9914 9921 9938 9941 9945 9946 9940 9941
+1301 1303 1304 1305 1307 1308 1309 1310 1312 1313 1314 1315 1316 1319
+1321 1323 1324 1325 1326 1337 1402 1409 1410 1414 1434 1436 1440 1444
+1445 1447 1451 1452 1455 1457 1459 1460 1463 1464 1465 1466 1467 1470
+1471 1472 1473 1474 1475 1476 1477 1503 1504 1507 1513 1514 1515 1516
+1517 1519 1521 1522 1524 1525 1527 1528 1529 1530 1531 1532 1533
+1535 1536 1537 1538 1539 1540 1541 1558 1560 1563 1565 1568 1580 1582
+1603 1604 1605 1608 1609 1611 1612 1614 1615 1616 1617 1618 1626 1702
+1707 1708 1710 1711 1712 1713 1714 1717 1718 1720 1721 1722 1723 1724
+1725 1726 1727 1730 1731 1732 1733 1734 1735 1736 1737 1762 1773 1776
+1783 1785 1786 1789 1795 1802 1805 1806 1808 1809 1810 1817 1904 1905
+1907 1909 2002 2006 2007 2008 2010 2012 2013 2014 2015 2017 2020 2022
+2023 2024 2025 2027 2028 2029 2030 2031 2032 2033 2034 2038 2049 2059
+2101 2102 2103 2104 2105 2106 2107 2108 2109 2114 2201 2204 2206 2207
+2208 2211 2227 2228 2231 2233 2236 2239 2243 2301 2302 2303 2305 2308
+2312 2313 2316 2317 2323 2324 2327 2328 2329 2330 2331 2332 2337 2338
+2340 2342 2344 2345 2347 2348 2349 2351 2352 2353 2354 2355 2356 2357
+2359 2360 2362 2363 2364 2365 2367 2368 2369 2371 2373 2374 2375 2376
+2377 2379 2380 2382 2383 2385 2387 2388 2390 2392 2393 2395 2397 2399
+2401 2402 2404 2405 2406 2408 2409 2412 2413 2414 2415 2417 2419 2420
+2421 2423 2424 2425 2426 2427 2428 2429 2430 2431 2433 2434 2436 2438
+2439 2440 2441 2442 2443 2444 2449 2450 2451 2453 2454 2455 2457 2458
+2459 2460 2461 2462 2464 2465 2466 2467 2468 2471 2472 2474 2476 2477
+2478 2480 2481 2482 2483 2484 2485 2486 2488 2489 2491 2492 2493 2495
+2496 2497 2498 2501 2504 2505 2506 2509 2511 2514 2515 2516 2520 2524
+2527 2528 2530 2534 2535 2536 2537 2538 2540 2542 2543 2545 2546 2547
+2548 2597 2601 2603 2605 2606 2607 2608 2610 2611 2612 2613 2614 2615
+2616 2617 2618 2630 2633 2634 2636 2637 2640 2701 2702 2704 2705 2706
+2707 2712 2722 2723 2727 2729 2731 2739 2748 2801 2809 2812 2820 2823
+2834 2836 2838 2845 2849 2850 2851 2852 2855 2867 2880 2881 2882 2883
+2884 2885 2886 2887 2888 2889 2890 2891 2892 2897 2903 2904 2905 2906
+2908 2910 2911 2912 2913 2915 3002 3003 3004 3005 3006 3008 3010 3013
+3014 3015 3016 3017 3018 3019 3021 3022 3023 3024 3025 3026 3027 3028
+3029 3030 3031 3032 3033 3034 3035 3036 3037 3038 3040 3041 3042 3044
+3045 3046 3047 3048 3049 3051 3054 3055 3056 3057 3058 3059 3060 3090
+3167 3231 3305 3406 3443 3501 3530 3532 3653 3661 3702 3706 3707 3711
+3714 4904 4906 4915 4919 4938 4942 4958 4960 4961 4977 4989 4994 5258
+5269 5274 5278 5347 5484 5536 5607 5871 5876 5880 6120 6239 6414 6415
+6456 6477 6488 6505 6515 6669 6690 6770 8046 8112 8210 9904 9910 9914
+9921 9938 9941 9945 9946
 """
 
-DEFAULT_STOCKS = list(
-    dict.fromkeys(
-        [
-            x.strip().upper().replace(".TW", "").replace(".TWO", "")
-            for x in DEFAULT_STOCKS_TEXT.replace("\n", ",").split(",")
-            if x.strip()
-        ]
-    )
+COMMON_STOCKS = sorted(
+    set(x for x in COMMON_STOCKS_TEXT.split() if x.isdigit())
 )
 
+# ============================================================
+# 四級篩選條件
+#
+# 「嚴格」完全以這次使用者提供的新版條件為核心：
+# 箱型 60 日 / 振幅 <20% / 突破 0~5% / 量 >1.3倍
+# 頭肩型態：至少60日 / 右肩最近20日 / 左右肩差 <10%
+#
+# 其他三級以此為中心向外／向內調整。
+# ============================================================
 
-# =========================================================
+PRESETS = {
+    "寬鬆": {
+        "box_days": 30,
+        "box_width": 0.25,
+        "breakout_pct": 0.08,
+        "vol_mult": 1.10,
+        "shoulder_diff": 0.15,
+        "right_window": 30,
+        "neckline_buffer": 0.04,
+    },
+    "標準": {
+        "box_days": 45,
+        "box_width": 0.22,
+        "breakout_pct": 0.06,
+        "vol_mult": 1.20,
+        "shoulder_diff": 0.12,
+        "right_window": 25,
+        "neckline_buffer": 0.03,
+    },
+    "嚴格": {
+        "box_days": 60,
+        "box_width": 0.20,
+        "breakout_pct": 0.05,
+        "vol_mult": 1.30,
+        "shoulder_diff": 0.10,
+        "right_window": 20,
+        "neckline_buffer": 0.02,
+    },
+    "極嚴格": {
+        "box_days": 75,
+        "box_width": 0.12,
+        "breakout_pct": 0.03,
+        "vol_mult": 1.50,
+        "shoulder_diff": 0.06,
+        "right_window": 15,
+        "neckline_buffer": 0.01,
+    },
+}
+
+
+# ============================================================
 # 基本工具
-# =========================================================
+# ============================================================
 
-def normalize_code(value):
+def normalize_code(code):
     return (
-        str(value)
+        str(code)
         .strip()
         .upper()
         .replace(".TW", "")
@@ -143,102 +198,78 @@ def normalize_code(value):
     )
 
 
-def nt(value):
-    if value is None or pd.isna(value):
-        return "—"
-    return f"NT${float(value):,.2f}"
-
-
-def api_headers(token):
-    if token:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
-
-
-# =========================================================
-# FinMind：股票名稱
-# =========================================================
-
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_stock_info():
-
-    response = requests.get(
-        FINMIND_DATA_URL,
-        params={
-            "dataset": "TaiwanStockInfo"
-        },
-        timeout=30
-    )
-
-    response.raise_for_status()
-
-    payload = response.json()
-
-    if payload.get("status") not in (None, 200):
-        raise RuntimeError(
-            payload.get("msg", "FinMind 錯誤")
+def get_stock_names():
+    try:
+        response = requests.get(
+            FINMIND_API,
+            params={
+                "dataset": "TaiwanStockInfo",
+                "start_date": "2020-01-01",
+            },
+            timeout=20,
         )
+        response.raise_for_status()
 
-    df = pd.DataFrame(
-        payload.get("data", [])
-    )
+        df = pd.DataFrame(response.json().get("data", []))
 
-    if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "stock_id",
-                "stock_name",
-                "type",
-                "date"
-            ]
-        )
+        if df.empty:
+            return {}
 
-    df["date"] = pd.to_datetime(
-        df["date"],
-        errors="coerce"
-    )
+        if "stock_id" not in df.columns or "stock_name" not in df.columns:
+            return {}
 
-    df["stock_id"] = (
-        df["stock_id"]
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(
+                df["date"],
+                errors="coerce",
+            )
+            df = df.sort_values("date")
 
-    return (
-        df
-        .sort_values("date")
-        .drop_duplicates(
+        df = df.drop_duplicates(
             "stock_id",
-            keep="last"
+            keep="last",
         )
+
+        return dict(
+            zip(
+                df["stock_id"].astype(str),
+                df["stock_name"].astype(str),
+            )
+        )
+
+    except Exception:
+        return {}
+
+
+def get_stock_name(code):
+    return get_stock_names().get(
+        normalize_code(code),
+        "",
     )
 
 
-# =========================================================
-# Yahoo Finance 股價
-# =========================================================
+# ============================================================
+# Yahoo Finance
+# ============================================================
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def get_yf_history(code, years):
-
+@st.cache_data(ttl=900, show_spinner=False)
+def get_history(code, years=3.5):
     code = normalize_code(code)
 
     period = (
-        f"{int(np.ceil(float(years)))}y"
+        f"{max(1.0, float(years) + 0.5):.1f}y"
     )
 
-    for suffix in [".TW", ".TWO"]:
-
+    for suffix in (".TW", ".TWO"):
         try:
-
-            df = yf.download(
-                code + suffix,
+            df = yf.Ticker(
+                code + suffix
+            ).history(
                 period=period,
                 interval="1d",
                 auto_adjust=False,
-                progress=False,
-                threads=False
+                actions=False,
             )
 
             if df is None or df.empty:
@@ -246,49 +277,44 @@ def get_yf_history(code, years):
 
             if isinstance(
                 df.columns,
-                pd.MultiIndex
+                pd.MultiIndex,
             ):
                 df.columns = (
                     df.columns
                     .get_level_values(0)
                 )
 
-            columns = [
+            required = [
                 "Open",
                 "High",
                 "Low",
                 "Close",
-                "Volume"
+                "Volume",
             ]
 
             if not all(
                 c in df.columns
-                for c in columns
+                for c in required
             ):
                 continue
 
-            df = df[columns].copy()
+            df = (
+                df[required]
+                .copy()
+                .dropna(
+                    subset=[
+                        "High",
+                        "Low",
+                        "Close",
+                    ]
+                )
+            )
 
             df.index = pd.to_datetime(
                 df.index
             )
 
-            if getattr(
-                df.index,
-                "tz",
-                None
-            ) is not None:
-                df.index = (
-                    df.index
-                    .tz_localize(None)
-                )
-
-            df = df.dropna(
-                subset=["Close"]
-            )
-
-            if not df.empty:
-                return df
+            return df
 
         except Exception:
             continue
@@ -296,349 +322,35 @@ def get_yf_history(code, years):
     return pd.DataFrame()
 
 
-# =========================================================
-# 市值前500
-# =========================================================
-
-@st.cache_data(
-    ttl=86400,
-    show_spinner=False
-)
-def get_market_value_top500(token):
-
-    if not token:
-        return pd.DataFrame()
-
-    end_date = (
-        pd.Timestamp.today()
-        .strftime("%Y-%m-%d")
-    )
-
-    start_date = (
-        pd.Timestamp.today()
-        - pd.Timedelta(days=10)
-    ).strftime("%Y-%m-%d")
-
-    response = requests.get(
-        FINMIND_DATA_URL,
-        headers=api_headers(token),
-        params={
-            "dataset":
-                "TaiwanStockMarketValue",
-            "start_date": start_date,
-            "end_date": end_date
-        },
-        timeout=60
-    )
-
-    response.raise_for_status()
-
-    payload = response.json()
-
-    if payload.get("status") not in (None, 200):
-        raise RuntimeError(
-            payload.get(
-                "msg",
-                "市值資料錯誤"
-            )
-        )
-
-    df = pd.DataFrame(
-        payload.get("data", [])
-    )
-
-    if df.empty:
-        return df
-
-    df["date"] = pd.to_datetime(
-        df["date"],
-        errors="coerce"
-    )
-
-    df["market_value"] = pd.to_numeric(
-        df["market_value"],
-        errors="coerce"
-    )
-
-    df["stock_id"] = (
-        df["stock_id"]
-        .astype(str)
-        .str.zfill(4)
-    )
-
-    latest_date = df["date"].max()
-
-    return (
-        df[
-            df["date"] == latest_date
-        ]
-        .dropna(
-            subset=["market_value"]
-        )
-        .sort_values(
-            "market_value",
-            ascending=False
-        )
-        .drop_duplicates(
-            "stock_id"
-        )
-        .head(500)
-        .reset_index(drop=True)
-    )
-
-
-# =========================================================
-# 三大法人
-# =========================================================
-
-@st.cache_data(
-    ttl=3600,
-    show_spinner=False
-)
-def get_institutional(
-    code,
-    start_date,
-    end_date,
-    token
-):
-
-    if not token:
-        return pd.DataFrame()
-
-    response = requests.get(
-        FINMIND_DATA_URL,
-        headers=api_headers(token),
-        params={
-            "dataset":
-                "TaiwanStockInstitutionalInvestorsBuySellWide",
-            "data_id": code,
-            "start_date": start_date,
-            "end_date": end_date
-        },
-        timeout=30
-    )
-
-    response.raise_for_status()
-
-    payload = response.json()
-
-    if payload.get("status") not in (None, 200):
-        return pd.DataFrame()
-
-    return pd.DataFrame(
-        payload.get("data", [])
-    )
-
-
-# =========================================================
-# 券商分點區間資料
-# =========================================================
-
-@st.cache_data(
-    ttl=3600,
-    show_spinner=False
-)
-def get_branch_agg(
-    code,
-    start_date,
-    end_date,
-    token
-):
-
-    if not token:
-        return pd.DataFrame()
-
-    response = requests.get(
-        FINMIND_BRANCH_AGG_URL,
-        headers=api_headers(token),
-        params={
-            "data_id": code,
-            "start_date": start_date,
-            "end_date": end_date
-        },
-        timeout=60
-    )
-
-    response.raise_for_status()
-
-    payload = response.json()
-
-    if payload.get("status") not in (None, 200):
-        raise RuntimeError(
-            payload.get(
-                "msg",
-                "券商分點資料錯誤"
-            )
-        )
-
-    return pd.DataFrame(
-        payload.get("data", [])
-    )
-
-
-# =========================================================
-# 技術指標
-# =========================================================
-
-def indicators(df):
-
-    x = df.copy()
-
-    for n in [
-        5,
-        10,
-        20,
-        60,
-        120,
-        240
-    ]:
-
-        x[f"MA{n}"] = (
-            x["Close"]
-            .rolling(n)
-            .mean()
-        )
-
-    # KD
-    low9 = (
-        x["Low"]
-        .rolling(9)
-        .min()
-    )
-
-    high9 = (
-        x["High"]
-        .rolling(9)
-        .max()
-    )
-
-    denominator = (
-        high9 - low9
-    ).replace(0, np.nan)
-
-    rsv = (
-        (x["Close"] - low9)
-        / denominator
-        * 100
-    )
-
-    x["K"] = (
-        rsv
-        .ewm(
-            com=2,
-            adjust=False
-        )
-        .mean()
-    )
-
-    x["D"] = (
-        x["K"]
-        .ewm(
-            com=2,
-            adjust=False
-        )
-        .mean()
-    )
-
-    # MACD
-    ema12 = (
-        x["Close"]
-        .ewm(
-            span=12,
-            adjust=False
-        )
-        .mean()
-    )
-
-    ema26 = (
-        x["Close"]
-        .ewm(
-            span=26,
-            adjust=False
-        )
-        .mean()
-    )
-
-    x["DIF"] = ema12 - ema26
-
-    x["DEA"] = (
-        x["DIF"]
-        .ewm(
-            span=9,
-            adjust=False
-        )
-        .mean()
-    )
-
-    x["MACD_HIST"] = (
-        x["DIF"] - x["DEA"]
-    )
-
-    # RSI
-    delta = x["Close"].diff()
-
-    gain = (
-        delta
-        .clip(lower=0)
-        .rolling(14)
-        .mean()
-    )
-
-    loss = (
-        -delta
-        .clip(upper=0)
-        .rolling(14)
-        .mean()
-    )
-
-    rs = (
-        gain
-        / loss.replace(0, np.nan)
-    )
-
-    x["RSI"] = (
-        100
-        - 100 / (1 + rs)
-    )
-
-    return x
-
-
-# =========================================================
+# ============================================================
 # 樂活五線譜
-# =========================================================
+# ============================================================
 
 def calculate_lohas(df, years):
-
-    days = int(
+    n = int(
         float(years) * 252
     )
 
-    days = max(
-        30,
-        min(days, len(df))
-    )
+    work = df.tail(n).copy()
 
-    data = (
-        df
-        .tail(days)
-        .copy()
+    if len(work) < 30:
+        return pd.DataFrame()
+
+    y = (
+        work["Close"]
+        .astype(float)
+        .to_numpy()
     )
 
     x = np.arange(
-        len(data)
-    )
-
-    y = (
-        data["Close"]
-        .astype(float)
-        .values
+        len(y),
+        dtype=float,
     )
 
     slope, intercept = np.polyfit(
         x,
         y,
-        1
+        1,
     )
 
     trend = (
@@ -646,1995 +358,2153 @@ def calculate_lohas(df, years):
         + intercept
     )
 
-    std_dev = float(
-        np.std(y - trend)
+    std = float(
+        np.std(
+            y - trend,
+            ddof=1,
+        )
     )
 
-    data["TL"] = trend
-    data["EG"] = (
-        trend + 2 * std_dev
-    )
-    data["G"] = (
-        trend + std_dev
-    )
-    data["F"] = (
-        trend - std_dev
-    )
-    data["EF"] = (
-        trend - 2 * std_dev
+    result = pd.DataFrame(
+        index=work.index
     )
 
-    return data
+    result["Close"] = y
+    result["極度貪婪"] = (
+        trend + 2 * std
+    )
+    result["貪婪"] = (
+        trend + std
+    )
+    result["趨勢線"] = trend
+    result["恐懼"] = (
+        trend - std
+    )
+    result["極度恐懼"] = (
+        trend - 2 * std
+    )
+
+    return result
 
 
-# =========================================================
-# 型態辨識
-# =========================================================
+# ============================================================
+# 頭肩頂
+# 賣出／避險預警
+# ============================================================
+
+def detect_head_and_shoulders_top(
+    df,
+    order=5,
+    right_window=20,
+    shoulder_diff_limit=0.10,
+    neckline_lower=0.85,
+    neckline_upper=1.02,
+):
+    if len(df) < 60:
+        return False, None
+
+    prices = (
+        df["High"]
+        .astype(float)
+        .to_numpy()
+    )
+
+    max_idx = argrelextrema(
+        prices,
+        np.greater,
+        order=order,
+    )[0]
+
+    if len(max_idx) < 3:
+        return False, None
+
+    h1, h2, h3 = max_idx[-3:]
+
+    # 右肩必須在最近 N 個交易日
+    if (
+        len(df) - 1 - h3
+        > right_window
+    ):
+        return False, None
+
+    p1 = prices[h1]
+    p2 = prices[h2]
+    p3 = prices[h3]
+
+    # 頭部高於左右肩
+    if not (
+        p2 > p1
+        and p2 > p3
+    ):
+        return False, None
+
+    if min(p1, p3) <= 0:
+        return False, None
+
+    shoulder_diff = (
+        abs(p1 - p3)
+        / min(p1, p3)
+    )
+
+    # 左右肩高度不能差太多
+    if (
+        shoulder_diff
+        >= shoulder_diff_limit
+    ):
+        return False, None
+
+    if h3 <= h1 + 1:
+        return False, None
+
+    lows_between = (
+        df["Low"]
+        .iloc[h1:h3 + 1]
+        .astype(float)
+    )
+
+    if lows_between.empty:
+        return False, None
+
+    neckline = float(
+        lows_between.min()
+    )
+
+    latest_close = float(
+        df["Close"].iloc[-1]
+    )
+
+    # 股價位於頸線附近
+    if not (
+        neckline * neckline_lower
+        <= latest_close
+        <= neckline * neckline_upper
+    ):
+        return False, None
+
+    # 右肩量小於頭部量
+    vol_h2 = float(
+        df["Volume"]
+        .iloc[
+            max(0, h2 - 2):h2 + 3
+        ]
+        .mean()
+    )
+
+    vol_h3 = float(
+        df["Volume"]
+        .iloc[
+            max(0, h3 - 2):h3 + 3
+        ]
+        .mean()
+    )
+
+    if (
+        vol_h2 <= 0
+        or vol_h3 >= vol_h2
+    ):
+        return False, None
+
+    return True, {
+        "left_shoulder": (
+            df.index[h1],
+            p1,
+        ),
+        "head": (
+            df.index[h2],
+            p2,
+        ),
+        "right_shoulder": (
+            df.index[h3],
+            p3,
+        ),
+        "neckline": neckline,
+    }
+
+
+# ============================================================
+# 頭肩底
+# 買進／起漲訊號
+# ============================================================
+
+def detect_head_and_shoulders_bottom(
+    df,
+    order=5,
+    right_window=20,
+    shoulder_diff_limit=0.10,
+    neckline_lower=0.98,
+    neckline_upper=1.08,
+):
+    if len(df) < 60:
+        return False, None
+
+    prices = (
+        df["Low"]
+        .astype(float)
+        .to_numpy()
+    )
+
+    min_idx = argrelextrema(
+        prices,
+        np.less,
+        order=order,
+    )[0]
+
+    if len(min_idx) < 3:
+        return False, None
+
+    l1, l2, l3 = min_idx[-3:]
+
+    # 右底必須在最近 N 個交易日
+    if (
+        len(df) - 1 - l3
+        > right_window
+    ):
+        return False, None
+
+    p1 = prices[l1]
+    p2 = prices[l2]
+    p3 = prices[l3]
+
+    # 頭部低於左右肩
+    if not (
+        p2 < p1
+        and p2 < p3
+    ):
+        return False, None
+
+    if min(p1, p3) <= 0:
+        return False, None
+
+    shoulder_diff = (
+        abs(p1 - p3)
+        / min(p1, p3)
+    )
+
+    if (
+        shoulder_diff
+        >= shoulder_diff_limit
+    ):
+        return False, None
+
+    if l3 <= l1 + 1:
+        return False, None
+
+    highs_between = (
+        df["High"]
+        .iloc[l1:l3 + 1]
+        .astype(float)
+    )
+
+    if highs_between.empty:
+        return False, None
+
+    neckline = float(
+        highs_between.max()
+    )
+
+    latest_close = float(
+        df["Close"].iloc[-1]
+    )
+
+    # 突破／回測頸線附近
+    if not (
+        neckline * neckline_lower
+        <= latest_close
+        <= neckline * neckline_upper
+    ):
+        return False, None
+
+    return True, {
+        "left_shoulder": (
+            df.index[l1],
+            p1,
+        ),
+        "head": (
+            df.index[l2],
+            p2,
+        ),
+        "right_shoulder": (
+            df.index[l3],
+            p3,
+        ),
+        "neckline": neckline,
+    }
+
+
+# ============================================================
+# 箱型突破
+# 帶量起漲點
+# ============================================================
 
 def detect_box_breakout(
     df,
-    lookback,
-    max_width,
-    breakout_pct,
-    volume_multiplier
+    box_days=60,
+    max_width=0.20,
+    breakout_max=0.05,
+    vol_mult=1.30,
 ):
+    if len(df) < box_days + 1:
+        return False, None
 
-    if len(df) < lookback + 5:
-        return False
-
-    recent = df.iloc[
-        -lookback - 1:-1
+    # 不把今天算進箱體
+    past = df.iloc[
+        -(box_days + 1):-1
     ]
 
-    latest = df.iloc[-1]
+    if past.empty:
+        return False, None
 
-    box_top = float(
-        recent["High"].max()
+    box_max = float(
+        past["High"].max()
     )
 
-    box_bottom = float(
-        recent["Low"].min()
+    box_min = float(
+        past["Low"].min()
     )
 
-    if box_bottom <= 0:
-        return False
+    if box_min <= 0:
+        return False, None
 
-    box_width = (
-        box_top - box_bottom
-    ) / box_bottom
+    amplitude = (
+        box_max - box_min
+    ) / box_min
 
-    avg_volume = float(
-        recent["Volume"]
-        .tail(
-            min(20, len(recent))
+    latest_close = float(
+        df["Close"].iloc[-1]
+    )
+
+    prev_close = float(
+        df["Close"].iloc[-2]
+    )
+
+    # 箱體振幅限制
+    if amplitude >= max_width:
+        return False, None
+
+    # 昨天尚在箱內，今天剛突破箱頂
+    if not (
+        prev_close <= box_max
+        and box_max < latest_close
+        <= box_max * (1 + breakout_max)
+    ):
+        return False, None
+
+    # 今日成交量 > 前20日均量指定倍數
+    vol_ma20 = float(
+        df["Volume"]
+        .iloc[-21:-1]
+        .mean()
+    )
+
+    latest_vol = float(
+        df["Volume"].iloc[-1]
+    )
+
+    if (
+        vol_ma20 <= 0
+        or latest_vol
+        <= vol_ma20 * vol_mult
+    ):
+        return False, None
+
+    return True, {
+        "box_max": box_max,
+        "box_min": box_min,
+        "breakout_price": latest_close,
+        "amplitude": amplitude,
+        "volume_ratio": (
+            latest_vol / vol_ma20
+        ),
+    }
+
+
+# ============================================================
+# 技術指標
+# ============================================================
+
+def add_indicators(df):
+    result = df.copy()
+
+    close = (
+        result["Close"]
+        .astype(float)
+    )
+
+    # 均線
+    for n in (
+        5,
+        20,
+        60,
+        120,
+        240,
+    ):
+        result[f"MA{n}"] = (
+            close.rolling(n).mean()
+        )
+
+    # MACD
+    ema12 = close.ewm(
+        span=12,
+        adjust=False,
+    ).mean()
+
+    ema26 = close.ewm(
+        span=26,
+        adjust=False,
+    ).mean()
+
+    result["DIF"] = (
+        ema12 - ema26
+    )
+
+    result["MACD"] = (
+        result["DIF"]
+        .ewm(
+            span=9,
+            adjust=False,
         )
         .mean()
     )
 
-    if avg_volume <= 0:
-        return False
-
-    price_breakout = (
-        float(latest["Close"])
-        >= box_top
-        * (1 + breakout_pct)
+    result["MACD_HIST"] = (
+        result["DIF"]
+        - result["MACD"]
     )
 
-    volume_breakout = (
-        float(latest["Volume"])
-        >= avg_volume
-        * volume_multiplier
+    # RSI
+    delta = close.diff()
+
+    gain = (
+        delta.clip(lower=0)
+        .rolling(14)
+        .mean()
     )
 
-    return (
-        box_width <= max_width
-        and price_breakout
-        and volume_breakout
+    loss = (
+        -delta.clip(upper=0)
+        .rolling(14)
+        .mean()
     )
 
-
-def find_local_extrema(
-    series,
-    order=4
-):
-
-    values = (
-        series
-        .astype(float)
-        .values
-    )
-
-    highs = []
-    lows = []
-
-    for i in range(
-        order,
-        len(values) - order
-    ):
-
-        if (
-            values[i]
-            >= max(
-                values[
-                    i - order:i
-                ]
-            )
-            and
-            values[i]
-            >= max(
-                values[
-                    i + 1:i + order + 1
-                ]
-            )
-        ):
-
-            highs.append(i)
-
-        if (
-            values[i]
-            <= min(
-                values[
-                    i - order:i
-                ]
-            )
-            and
-            values[i]
-            <= min(
-                values[
-                    i + 1:i + order + 1
-                ]
-            )
-        ):
-
-            lows.append(i)
-
-    return highs, lows
-
-
-def detect_head_shoulders_bottom(
-    df,
-    shoulder_tolerance,
-    head_depth,
-    min_gap,
-    neckline_break
-):
-
-    data = (
-        df
-        .tail(160)["Close"]
-        .reset_index(drop=True)
-    )
-
-    if len(data) < 70:
-        return False
-
-    _, lows = find_local_extrema(
-        data,
-        order=4
-    )
-
-    if len(lows) < 3:
-        return False
-
-    for a, b, c in zip(
-        lows[:-2],
-        lows[1:-1],
-        lows[2:]
-    ):
-
-        if (
-            b - a < min_gap
-            or
-            c - b < min_gap
-        ):
-            continue
-
-        left = float(data.iloc[a])
-        head = float(data.iloc[b])
-        right = float(data.iloc[c])
-
-        shoulder_difference = (
-            abs(left - right)
-            / max(left, right)
-        )
-
-        if (
-            shoulder_difference
-            > shoulder_tolerance
-        ):
-            continue
-
-        if (
-            head
-            >= min(left, right)
-            * (1 - head_depth)
-        ):
-            continue
-
-        left_neckline = float(
-            data.iloc[a:b + 1].max()
-        )
-
-        right_neckline = float(
-            data.iloc[b:c + 1].max()
-        )
-
-        neckline = max(
-            left_neckline,
-            right_neckline
-        )
-
-        current_price = float(
-            data.iloc[-1]
-        )
-
-        if (
-            current_price
-            >= neckline
-            * (1 + neckline_break)
-        ):
-            return True
-
-    return False
-
-
-def detect_head_shoulders_top(
-    df,
-    shoulder_tolerance,
-    head_height,
-    min_gap,
-    neckline_break
-):
-
-    data = (
-        df
-        .tail(160)["Close"]
-        .reset_index(drop=True)
-    )
-
-    if len(data) < 70:
-        return False
-
-    highs, _ = find_local_extrema(
-        data,
-        order=4
-    )
-
-    if len(highs) < 3:
-        return False
-
-    for a, b, c in zip(
-        highs[:-2],
-        highs[1:-1],
-        highs[2:]
-    ):
-
-        if (
-            b - a < min_gap
-            or
-            c - b < min_gap
-        ):
-            continue
-
-        left = float(data.iloc[a])
-        head = float(data.iloc[b])
-        right = float(data.iloc[c])
-
-        shoulder_difference = (
-            abs(left - right)
-            / max(left, right)
-        )
-
-        if (
-            shoulder_difference
-            > shoulder_tolerance
-        ):
-            continue
-
-        if (
-            head
-            <= max(left, right)
-            * (1 + head_height)
-        ):
-            continue
-
-        left_neckline = float(
-            data.iloc[a:b + 1].min()
-        )
-
-        right_neckline = float(
-            data.iloc[b:c + 1].min()
-        )
-
-        neckline = min(
-            left_neckline,
-            right_neckline
-        )
-
-        current_price = float(
-            data.iloc[-1]
-        )
-
-        if (
-            current_price
-            <= neckline
-            * (1 - neckline_break)
-        ):
-            return True
-
-    return False
-
-
-# =========================================================
-# 樂活五線譜圖
-# =========================================================
-
-def create_lohas_chart(data):
-
-    fig = go.Figure()
-
-    specifications = [
-        (
-            "EG",
-            "極度貪婪",
-            "#A12C7B",
-            2
-        ),
-        (
-            "G",
-            "貪婪",
-            "#E8A0BF",
-            2
-        ),
-        (
-            "TL",
-            "趨勢線",
-            "#707070",
-            2
-        ),
-        (
-            "F",
-            "恐懼",
-            "#5A9BD5",
-            2
-        ),
-        (
-            "EF",
-            "極度恐懼",
-            "#002060",
-            2
-        ),
-        (
-            "Close",
-            "價格",
-            "#000000",
-            2.5
-        )
-    ]
-
-    for column, name, color, width in specifications:
-
-        fig.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data[column],
-                mode="lines",
-                name=name,
-                line=dict(
-                    color=color,
-                    width=width
-                )
-            )
-        )
-
-    fig.update_layout(
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        hovermode="x unified",
-        dragmode=False,
-        height=520,
-        margin=dict(
-            l=10,
-            r=55,
-            t=35,
-            b=35
-        ),
-        shapes=[
-            dict(
-                type="rect",
-                xref="paper",
-                yref="paper",
-                x0=0,
-                y0=0,
-                x1=1,
-                y1=1,
-                line=dict(color="#D9D9D9", width=1),
-                fillcolor="rgba(0,0,0,0)"
-            )
-        ],
-        legend=dict(
-            orientation="h",
-            y=1.03,
-            x=0
+    rs = (
+        gain
+        / loss.replace(
+            0,
+            np.nan,
         )
     )
 
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA",
-        side="bottom",
-        tickformat="%Y/%m/%d"
+    result["RSI"] = (
+        100
+        - 100 / (1 + rs)
     )
 
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA",
-        side="right"
+    # KD
+    low9 = (
+        result["Low"]
+        .rolling(9)
+        .min()
     )
 
-    return fig
-
-
-# =========================================================
-# K線＋成交量＋MACD＋RSI
-# =========================================================
-
-def create_kline_chart(data):
-
-    fig = make_subplots(
-        rows=4,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.025,
-        row_heights=[
-            0.52,
-            0.16,
-            0.16,
-            0.16
-        ],
-        subplot_titles=[
-            "K線與均線",
-            "成交量",
-            "MACD",
-            "RSI"
-        ]
+    high9 = (
+        result["High"]
+        .rolling(9)
+        .max()
     )
 
-    fig.add_trace(
-        go.Candlestick(
-            x=data.index,
-            open=data["Open"],
-            high=data["High"],
-            low=data["Low"],
-            close=data["Close"],
-            name="K線"
-        ),
-        row=1,
-        col=1
+    denominator = (
+        high9 - low9
+    ).replace(
+        0,
+        np.nan,
     )
 
-    moving_averages = [
-        ("MA5", "#2196F3"),
-        ("MA20", "#FF9800"),
-        ("MA60", "#4CAF50"),
-        ("MA120", "#E91E63"),
-        ("MA240", "#9C27B0")
-    ]
-
-    for name, color in moving_averages:
-
-        fig.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data[name],
-                name=name,
-                line=dict(
-                    color=color,
-                    width=1.4
-                )
-            ),
-            row=1,
-            col=1
-        )
-
-    volume_colors = np.where(
-        data["Close"]
-        >= data["Open"],
-        "#E53935",
-        "#43A047"
+    rsv = (
+        (close - low9)
+        / denominator
+        * 100
     )
 
-    fig.add_trace(
-        go.Bar(
-            x=data.index,
-            y=data["Volume"],
-            name="成交量",
-            marker_color=volume_colors
-        ),
-        row=2,
-        col=1
+    result["K"] = (
+        rsv.ewm(
+            com=2,
+            adjust=False,
+        ).mean()
     )
 
-    macd_colors = np.where(
-        data["MACD_HIST"] >= 0,
-        "#E53935",
-        "#43A047"
+    result["D"] = (
+        result["K"]
+        .ewm(
+            com=2,
+            adjust=False,
+        ).mean()
     )
 
-    fig.add_trace(
-        go.Bar(
-            x=data.index,
-            y=data["MACD_HIST"],
-            name="MACD柱",
-            marker_color=macd_colors
-        ),
-        row=3,
-        col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=data.index,
-            y=data["DIF"],
-            name="DIF",
-            line=dict(
-                color="#1565C0"
-            )
-        ),
-        row=3,
-        col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=data.index,
-            y=data["DEA"],
-            name="DEA",
-            line=dict(
-                color="#EF6C00"
-            )
-        ),
-        row=3,
-        col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=data.index,
-            y=data["RSI"],
-            name="RSI",
-            line=dict(
-                color="#8E24AA",
-                width=2
-            )
-        ),
-        row=4,
-        col=1
-    )
-
-    fig.add_hline(
-        y=70,
-        line_dash="dot",
-        row=4,
-        col=1
-    )
-
-    fig.add_hline(
-        y=30,
-        line_dash="dot",
-        row=4,
-        col=1
-    )
-
-    fig.update_layout(
-        height=820,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        hovermode="x unified",
-        margin=dict(
-            l=8,
-            r=55,
-            t=45,
-            b=20
-        ),
-        legend=dict(
-            orientation="h",
-            y=1.02,
-            x=0
-        ),
-        xaxis_rangeslider_visible=False
-    )
-
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA"
-    )
-
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA",
-        side="right"
-    )
-
-    return fig
+    return result
 
 
-# =========================================================
-# KD
-# =========================================================
+# ============================================================
+# FinMind
+# ============================================================
 
-def create_kd_chart(data):
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=data.index,
-            y=data["K"],
-            name="K",
-            line=dict(
-                color="#1565C0",
-                width=2
-            )
-        )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=data.index,
-            y=data["D"],
-            name="D",
-            line=dict(
-                color="#E91E63",
-                width=2
-            )
-        )
-    )
-
-    fig.add_hline(
-        y=80,
-        line_dash="dot"
-    )
-
-    fig.add_hline(
-        y=20,
-        line_dash="dot"
-    )
-
-    fig.update_layout(
-        height=280,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        hovermode="x unified",
-        margin=dict(
-            l=8,
-            r=55,
-            t=20,
-            b=20
-        )
-    )
-
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA"
-    )
-
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA",
-        side="right"
-    )
-
-    return fig
+def auth_headers(token):
+    if token:
+        return {
+            "Authorization": f"Bearer {token}"
+        }
+    return {}
 
 
-# =========================================================
-# 主力／散戶圖
-# =========================================================
-
-def create_chip_chart(chip):
-
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=[
-            "主力買賣超",
-            "散戶買賣超（估算）"
-        ]
-    )
-
-    main_colors = np.where(
-        chip["Main"] >= 0,
-        "#E53935",
-        "#43A047"
-    )
-
-    retail_colors = np.where(
-        chip["Retail"] >= 0,
-        "#E53935",
-        "#43A047"
-    )
-
-    fig.add_trace(
-        go.Bar(
-            x=chip["date"],
-            y=chip["Main"],
-            name="主力買賣超",
-            marker_color=main_colors,
-            hovertemplate=(
-                "日期：%{x|%Y/%m/%d}"
-                "<br>主力：%{y:,.0f} 張"
-                "<extra></extra>"
-            )
-        ),
-        row=1,
-        col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=chip["date"],
-            y=chip["MainCum"],
-            name="主力累積",
-            line=dict(
-                color="#2E7D32",
-                width=2
-            ),
-            hovertemplate=(
-                "累計主力：%{y:,.0f} 張"
-                "<extra></extra>"
-            )
-        ),
-        row=1,
-        col=1
-    )
-
-    fig.add_trace(
-        go.Bar(
-            x=chip["date"],
-            y=chip["Retail"],
-            name="散戶買賣超（估算）",
-            marker_color=retail_colors,
-            hovertemplate=(
-                "日期：%{x|%Y/%m/%d}"
-                "<br>散戶估算：%{y:,.0f} 張"
-                "<extra></extra>"
-            )
-        ),
-        row=2,
-        col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=chip["date"],
-            y=chip["RetailCum"],
-            name="散戶累積",
-            line=dict(
-                color="#EF9A9A",
-                width=2
-            ),
-            hovertemplate=(
-                "累計散戶：%{y:,.0f} 張"
-                "<extra></extra>"
-            )
-        ),
-        row=2,
-        col=1
-    )
-
-    fig.update_layout(
-        height=560,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        hovermode="x unified",
-        margin=dict(
-            l=8,
-            r=55,
-            t=50,
-            b=20
-        )
-    )
-
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA"
-    )
-
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor="#EAEAEA",
-        side="right"
-    )
-
-    return fig
-
-
-# =========================================================
-# 主力／散戶計算
-# =========================================================
-
-def build_chip_data(
+@st.cache_data(
+    ttl=3600,
+    show_spinner=False,
+)
+def get_branch_agg(
     code,
+    start_date,
+    end_date,
     token,
-    days=60,
-    top_n=15
 ):
-
     if not token:
         return pd.DataFrame()
 
-    end_date = pd.Timestamp.today()
-
-    start_date = (
-        end_date
-        - pd.Timedelta(
-            days=max(days * 2, 90)
+    try:
+        response = requests.get(
+            FINMIND_API,
+            headers=auth_headers(token),
+            params={
+                "dataset":
+                    "TaiwanStockTradingDailyReportSecIdAgg",
+                "data_id":
+                    normalize_code(code),
+                "start_date":
+                    start_date,
+                "end_date":
+                    end_date,
+            },
+            timeout=30,
         )
-    )
 
-    raw = get_branch_agg(
-        code,
-        start_date.strftime("%Y-%m-%d"),
-        end_date.strftime("%Y-%m-%d"),
-        token
-    )
+        response.raise_for_status()
 
-    if raw.empty:
+        return pd.DataFrame(
+            response.json().get(
+                "data",
+                [],
+            )
+        )
+
+    except Exception:
         return pd.DataFrame()
 
-    raw["buy_volume"] = pd.to_numeric(
-        raw["buy_volume"],
-        errors="coerce"
-    ).fillna(0)
 
-    raw["sell_volume"] = pd.to_numeric(
-        raw["sell_volume"],
-        errors="coerce"
-    ).fillna(0)
+def calculate_main_retail(
+    branch_df,
+):
+    if (
+        branch_df.empty
+        or "date"
+        not in branch_df.columns
+    ):
+        return pd.DataFrame()
 
-    raw["date"] = pd.to_datetime(
-        raw["date"],
-        errors="coerce"
+    df = branch_df.copy()
+
+    for col in (
+        "buy_volume",
+        "sell_volume",
+    ):
+        if col not in df.columns:
+            return pd.DataFrame()
+
+        df[col] = pd.to_numeric(
+            df[col],
+            errors="coerce",
+        ).fillna(0)
+
+    df["net"] = (
+        df["buy_volume"]
+        - df["sell_volume"]
     )
 
-    # FinMind 分點資料為股數，轉成張
-    raw["net"] = (
-        raw["buy_volume"]
-        - raw["sell_volume"]
-    ) / 1000.0
+    rows = []
 
-    result = []
-
-    for date, daily in raw.groupby("date"):
-
-        branches = (
-            daily
-            .groupby(
-                [
-                    "securities_trader_id",
-                    "securities_trader"
-                ],
-                as_index=False
-            )[
-                [
-                    "buy_volume",
-                    "sell_volume",
-                    "net"
-                ]
-            ]
+    for date, day in df.groupby(
+        "date"
+    ):
+        top_buy = day.nlargest(
+            15,
+            "net",
         )
 
-        top_buy = (
-            branches
-            .nlargest(
-                top_n,
-                "net"
+        top_sell = day.nsmallest(
+            15,
+            "net",
+        )
+
+        selected = set(
+            top_buy.index
+        ) | set(
+            top_sell.index
+        )
+
+        if selected:
+            main_net = float(
+                day.loc[
+                    list(selected),
+                    "net",
+                ].sum()
             )
-        )
-
-        top_sell = (
-            branches
-            .nsmallest(
-                top_n,
-                "net"
-            )
-        )
-
-        main_net = float(
-            top_buy["net"].sum()
-            + top_sell["net"].sum()
-        )
-
-        main_ids = set(
-            top_buy[
-                "securities_trader_id"
-            ]
-            .astype(str)
-        )
-
-        main_ids |= set(
-            top_sell[
-                "securities_trader_id"
-            ]
-            .astype(str)
-        )
-
-        retail_branches = branches[
-            ~branches[
-                "securities_trader_id"
-            ]
-            .astype(str)
-            .isin(main_ids)
-        ].copy()
-
-        buy_count = int(
-            (
-                retail_branches[
-                    "buy_volume"
-                ] > 0
-            ).sum()
-        )
-
-        sell_count = int(
-            (
-                retail_branches[
-                    "sell_volume"
-                ] > 0
-            ).sum()
-        )
-
-        total_count = (
-            buy_count
-            + sell_count
-        )
-
-        retail_turnover = float(
-            (
-                retail_branches[
-                    "buy_volume"
-                ]
-                + retail_branches[
-                    "sell_volume"
-                ]
-            ).sum()
-            / 1000.0
-        )
-
-        if total_count > 0:
-
-            retail_net = (
-                retail_turnover
-                * (
-                    buy_count
-                    - sell_count
-                )
-                / total_count
-                / 2.0
-            )
-
         else:
+            main_net = 0.0
 
+        remain = day.drop(
+            index=list(selected),
+            errors="ignore",
+        )
+
+        if remain.empty:
             retail_net = 0.0
+        else:
+            retail_net = float(
+                remain["net"].sum()
+            )
 
-        result.append(
+        rows.append(
             {
-                "date": date,
-                "Main": main_net,
-                "Retail": retail_net
+                "date":
+                    pd.to_datetime(date),
+                "Main":
+                    main_net / 1000,
+                "Retail":
+                    retail_net / 1000,
             }
         )
 
-    chip = (
-        pd.DataFrame(result)
-        .sort_values("date")
-        .tail(days)
-        .copy()
+    result = pd.DataFrame(
+        rows
+    ).sort_values("date")
+
+    if result.empty:
+        return result
+
+    result["MainCum"] = (
+        result["Main"].cumsum()
     )
 
-    if chip.empty:
-        return chip
-
-    chip["MainCum"] = (
-        chip["Main"]
-        .cumsum()
+    result["RetailCum"] = (
+        result["Retail"].cumsum()
     )
 
-    chip["RetailCum"] = (
-        chip["Retail"]
-        .cumsum()
+    return result
+
+
+# ============================================================
+# 三大法人
+# ============================================================
+
+@st.cache_data(
+    ttl=3600,
+    show_spinner=False,
+)
+def get_institutional(
+    code,
+    start_date,
+    end_date,
+):
+    try:
+        response = requests.get(
+            FINMIND_API,
+            params={
+                "dataset":
+                    "TaiwanStockInstitutionalInvestorsBuySellWide",
+                "data_id":
+                    normalize_code(code),
+                "start_date":
+                    start_date,
+                "end_date":
+                    end_date,
+            },
+            timeout=30,
+        )
+
+        response.raise_for_status()
+
+        return pd.DataFrame(
+            response.json().get(
+                "data",
+                [],
+            )
+        )
+
+    except Exception:
+        return pd.DataFrame()
+
+
+def prepare_institutional(
+    df,
+):
+    if (
+        df.empty
+        or "date"
+        not in df.columns
+    ):
+        return pd.DataFrame()
+
+    x = df.copy()
+
+    x["date"] = pd.to_datetime(
+        x["date"],
+        errors="coerce",
     )
 
-    return chip
+    aliases = {
+        "外資": [
+            "Foreign_Investor",
+            "Foreign_Investor_buy_sell",
+            "foreign_investor",
+        ],
+        "投信": [
+            "Investment_Trust",
+            "Investment_Trust_buy_sell",
+            "investment_trust",
+        ],
+        "自營商": [
+            "Dealer_Self",
+            "Dealer_Self_buy_sell",
+            "Dealer",
+        ],
+    }
+
+    dates = sorted(
+        x["date"]
+        .dropna()
+        .unique()
+    )
+
+    result = pd.DataFrame(
+        {
+            "date": dates
+        }
+    )
+
+    for name, candidates in aliases.items():
+        found = next(
+            (
+                c
+                for c in candidates
+                if c in x.columns
+            ),
+            None,
+        )
+
+        if found:
+            temp = pd.to_numeric(
+                x[found],
+                errors="coerce",
+            ).fillna(0)
+
+            grouped = (
+                temp
+                .groupby(x["date"])
+                .sum()
+            )
+
+            result[name] = (
+                result["date"]
+                .map(grouped)
+                .fillna(0)
+            )
+        else:
+            result[name] = 0.0
+
+    return result
 
 
-# =========================================================
-# 讀取股票名稱
-# =========================================================
+# ============================================================
+# 市值 Top 500
+# ============================================================
 
-try:
-    stock_info = get_stock_info()
-except Exception:
-    stock_info = pd.DataFrame()
+@st.cache_data(
+    ttl=86400,
+    show_spinner=False,
+)
+def get_market_value_top500():
+    try:
+        end_date = (
+            datetime.now().date()
+        )
 
-if not stock_info.empty:
+        start_date = (
+            end_date
+            - timedelta(days=10)
+        )
 
-    name_map = dict(
-        zip(
-            stock_info["stock_id"]
-            .astype(str),
-            stock_info["stock_name"]
-            .astype(str)
+        response = requests.get(
+            FINMIND_API,
+            params={
+                "dataset":
+                    "TaiwanStockMarketValue",
+                "start_date":
+                    str(start_date),
+                "end_date":
+                    str(end_date),
+            },
+            timeout=30,
+        )
+
+        response.raise_for_status()
+
+        df = pd.DataFrame(
+            response.json().get(
+                "data",
+                [],
+            )
+        )
+
+        required = {
+            "date",
+            "stock_id",
+            "market_value",
+        }
+
+        if (
+            df.empty
+            or not required.issubset(
+                df.columns
+            )
+        ):
+            return []
+
+        df["date"] = pd.to_datetime(
+            df["date"],
+            errors="coerce",
+        )
+
+        latest_date = df["date"].max()
+
+        latest = df[
+            df["date"] == latest_date
+        ].copy()
+
+        latest["market_value"] = (
+            pd.to_numeric(
+                latest["market_value"],
+                errors="coerce",
+            )
+        )
+
+        latest = (
+            latest
+            .dropna(
+                subset=["market_value"]
+            )
+            .sort_values(
+                "market_value",
+                ascending=False,
+            )
+            .head(500)
+        )
+
+        return [
+            normalize_code(x)
+            for x in latest[
+                "stock_id"
+            ].astype(str)
+        ]
+
+    except Exception:
+        return []
+
+
+# ============================================================
+# 智慧選股
+# ============================================================
+
+def scan_one(
+    code,
+    params,
+):
+    df = get_history(
+        code,
+        1.0,
+    )
+
+    if (
+        df.empty
+        or len(df) < 80
+    ):
+        return None
+
+    box_ok, box_info = (
+        detect_box_breakout(
+            df,
+            box_days=params[
+                "box_days"
+            ],
+            max_width=params[
+                "box_width"
+            ],
+            breakout_max=params[
+                "breakout_pct"
+            ],
+            vol_mult=params[
+                "vol_mult"
+            ],
         )
     )
 
-else:
+    bottom_ok, _ = (
+        detect_head_and_shoulders_bottom(
+            df,
+            order=5,
+            right_window=params[
+                "right_window"
+            ],
+            shoulder_diff_limit=params[
+                "shoulder_diff"
+            ],
+            neckline_lower=(
+                1
+                - params[
+                    "neckline_buffer"
+                ]
+            ),
+            neckline_upper=1.08,
+        )
+    )
 
-    name_map = {}
+    top_ok, _ = (
+        detect_head_and_shoulders_top(
+            df,
+            order=5,
+            right_window=params[
+                "right_window"
+            ],
+            shoulder_diff_limit=params[
+                "shoulder_diff"
+            ],
+            neckline_lower=0.85,
+            neckline_upper=(
+                1
+                + params[
+                    "neckline_buffer"
+                ]
+            ),
+        )
+    )
+
+    signal_count = (
+        int(box_ok)
+        + int(bottom_ok)
+        + int(top_ok)
+    )
+
+    if signal_count == 0:
+        return None
+
+    result = {
+        "股票代號":
+            normalize_code(code),
+        "股票名稱":
+            get_stock_name(code),
+        "最新收盤":
+            float(
+                df["Close"].iloc[-1]
+            ),
+        "箱型突破":
+            "✅" if box_ok else "",
+        "頭肩底":
+            "✅" if bottom_ok else "",
+        "頭肩頂":
+            "⚠️" if top_ok else "",
+        "訊號數":
+            signal_count,
+    }
+
+    if box_ok:
+        result["箱型振幅"] = (
+            f"{box_info['amplitude'] * 100:.1f}%"
+        )
+
+        result["突破量比"] = (
+            f"{box_info['volume_ratio']:.1f}x"
+        )
+    else:
+        result["箱型振幅"] = ""
+        result["突破量比"] = ""
+
+    return result
 
 
-# =========================================================
+def run_scan(
+    codes,
+    params,
+):
+    rows = []
+
+    progress = st.progress(0)
+
+    total = len(codes)
+
+    for i, code in enumerate(
+        codes,
+        1,
+    ):
+        try:
+            result = scan_one(
+                code,
+                params,
+            )
+
+            if result:
+                rows.append(result)
+
+        except Exception:
+            pass
+
+        progress.progress(
+            i / total
+        )
+
+    progress.empty()
+
+    return pd.DataFrame(rows)
+
+
+# ============================================================
 # Sidebar
-# =========================================================
+# ============================================================
 
-st.sidebar.header("⚙️ 股票設定")
+st.sidebar.title(
+    "⚙️ 系統設定"
+)
 
 symbol = normalize_code(
     st.sidebar.text_input(
-        "台股代號（不用輸入 .TW）",
-        "2330"
+        "台股代號",
+        "2330",
+        help="例如 2330，不需要輸入 .TW",
     )
 )
 
-period_years = st.sidebar.select_slider(
-    "📅 圖表觀察期間",
-    options=[
-        1.0,
-        1.5,
-        2.0,
-        2.5,
-        3.0,
-        3.5,
-        4.0,
-        4.5,
-        5.0
-    ],
-    value=1.0,
-    format_func=lambda x: f"{x:g} 年"
-)
-
-st.sidebar.caption(
-    "預設 1 年，可切換 1.5／2／2.5／3／3.5／4／4.5／5 年"
-)
-
-# FinMind Token 建議放在 Streamlit Secrets：
-# .streamlit/secrets.toml
-# FINMIND_TOKEN = "你的 Token"
-#
-# 若未設定 Secret，側邊欄仍可手動輸入 Token。
-MY_FINMIND_TOKEN = st.secrets.get("FINMIND_TOKEN", "")
-
-finmind_token = st.sidebar.text_input(
-    "FinMind Token (籌碼/市值前500需要)", 
-    value=MY_FINMIND_TOKEN, 
-    type="password"
-)
-stock_name = name_map.get(
-    symbol,
-    ""
+period_years = (
+    st.sidebar.select_slider(
+        "觀察期間（年）",
+        options=[
+            1.0,
+            1.5,
+            2.0,
+            2.5,
+            3.0,
+            3.5,
+            4.0,
+            4.5,
+            5.0,
+        ],
+        value=3.5,
+    )
 )
 
 st.sidebar.markdown("---")
 
 st.sidebar.subheader(
-    "📱 手機顯示"
+    "⭐ 常用個股管理"
 )
 
-mobile_mode = st.sidebar.checkbox(
-    "手機最佳化模式",
-    value=True
+if "favorites" not in st.session_state:
+    st.session_state.favorites = (
+        COMMON_STOCKS.copy()
+    )
+
+favorite = st.sidebar.selectbox(
+    "快速選擇",
+    ["（目前輸入）"]
+    + st.session_state.favorites,
 )
 
+if favorite != "（目前輸入）":
+    symbol = favorite
 
-# =========================================================
-# 分頁
-# =========================================================
-
-tab1, tab2, tab3 = st.tabs(
-    [
-        "📊 樂活五線譜",
-        "📈 K線與指標",
-        "🔍 智慧型態選股"
-    ]
+st.sidebar.caption(
+    f"共 {len(st.session_state.favorites)} 檔"
 )
 
+current_name = get_stock_name(
+    symbol
+)
 
-# =========================================================
-# TAB 1：樂活五線譜
-# =========================================================
+display_name = (
+    f"{symbol} {current_name}"
+).strip()
 
-with tab1:
+# ============================================================
+# Header
+# ============================================================
 
-    if not symbol:
+st.title(
+    "📈 樂活五線譜與智慧選股系統"
+)
 
-        st.info(
-            "請輸入台股代號"
+st.caption(
+    f"目前分析：{display_name}"
+    "　｜　幣別：新台幣 NT$"
+)
+
+tab_lohas, tab_kline, tab_scan = (
+    st.tabs(
+        [
+            "📊 樂活五線譜",
+            "📈 K線與指標",
+            "🔍 智慧型態選股",
+        ]
+    )
+)
+
+# ============================================================
+# Tab 1：樂活五線譜
+# ============================================================
+
+with tab_lohas:
+
+    st.subheader(
+        f"📊 {display_name}｜樂活五線譜"
+    )
+
+    df = get_history(
+        symbol,
+        period_years,
+    )
+
+    if df.empty:
+
+        st.error(
+            "無法取得此股票資料，"
+            "請確認代號是否正確或稍後再試。"
         )
 
     else:
 
-        df = get_yf_history(
-            symbol,
-            period_years
+        close = float(
+            df["Close"].iloc[-1]
         )
 
-        if df.empty:
+        prev = float(
+            df["Close"].iloc[-2]
+        )
 
-            st.error(
-                f"找不到 {symbol} 的台股資料，請確認代號。"
+        change = (
+            close - prev
+        )
+
+        pct = (
+            change / prev * 100
+            if prev
+            else 0
+        )
+
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric(
+            "最新收盤",
+            f"NT$ {close:,.2f}",
+            f"{change:+.2f}",
+        )
+
+        c2.metric(
+            "漲跌幅",
+            f"{pct:+.2f}%",
+        )
+
+        c3.metric(
+            "觀察期間",
+            f"{period_years:.1f} 年",
+        )
+
+        lohas = calculate_lohas(
+            df,
+            period_years,
+        )
+
+        if lohas.empty:
+
+            st.warning(
+                "資料不足，"
+                "無法建立樂活五線譜。"
             )
 
         else:
 
-            data = calculate_lohas(
-                df,
-                period_years
-            )
+            fig = go.Figure()
 
-            latest = data.iloc[-1]
+            line_specs = [
+                (
+                    "極度貪婪",
+                    "#8E245E",
+                ),
+                (
+                    "貪婪",
+                    "#C44E52",
+                ),
+                (
+                    "趨勢線",
+                    "#777777",
+                ),
+                (
+                    "恐懼",
+                    "#4F81BD",
+                ),
+                (
+                    "極度恐懼",
+                    "#2F5597",
+                ),
+                (
+                    "股價",
+                    "#222222",
+                ),
+            ]
 
-            latest_price = float(
-                latest["Close"]
-            )
+            for label, color in line_specs:
 
-            if latest_price >= latest["EG"]:
+                width = (
+                    2
+                    if label == "趨勢線"
+                    else 1.5
+                )
 
-                sentiment = "極度貪婪"
+                fig.add_trace(
+                    go.Scatter(
+                        x=lohas.index,
+                        y=lohas[label],
+                        mode="lines",
+                        name=label,
+                        line=dict(
+                            color=color,
+                            width=width,
+                        ),
+                        hovertemplate=(
+                            f"日期：%{{x|%Y-%m-%d}}"
+                            f"<br>{label}："
+                            "NT$ %{y:.2f}"
+                            "<extra></extra>"
+                        ),
+                    )
+                )
 
-            elif latest_price >= latest["G"]:
-
-                sentiment = "貪婪"
-
-            elif latest_price <= latest["EF"]:
-
-                sentiment = "極度恐懼"
-
-            elif latest_price <= latest["F"]:
-
-                sentiment = "恐懼"
-
-            else:
-
-                sentiment = "正常範圍"
-
-            st.subheader(
-                f"{symbol} {stock_name}".strip()
-            )
-
-            c1, c2, c3 = st.columns(3)
-
-            c1.metric(
-                "股票代碼",
-                symbol
-            )
-
-            c2.metric(
-                "最新價格",
-                nt(latest_price)
-            )
-
-            c3.metric(
-                "市場情緒",
-                sentiment
+            fig.update_layout(
+                template="plotly_white",
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                height=560,
+                hovermode="x unified",
+                margin=dict(
+                    l=10,
+                    r=10,
+                    t=25,
+                    b=30,
+                ),
+                legend=dict(
+                    orientation="h",
+                    y=1.02,
+                    x=0,
+                ),
+                xaxis=dict(
+                    side="bottom",
+                    showgrid=True,
+                ),
+                yaxis=dict(
+                    title="NT$",
+                    side="right",
+                    showgrid=True,
+                ),
             )
 
             st.plotly_chart(
-                create_lohas_chart(data),
+                fig,
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
                     "responsive": True,
-                    "scrollZoom": False,
-                    "doubleClick": False
-                }
+                },
+            )
+
+            st.info(
+                "越靠近極度貪婪代表估值偏高；"
+                "越靠近極度恐懼代表估值偏低。"
+                "五線譜僅供估值與趨勢輔助判讀。"
             )
 
 
-# =========================================================
-# TAB 2：K線與指標
-# =========================================================
+# ============================================================
+# Tab 2：K線與指標
+# ============================================================
 
-with tab2:
+with tab_kline:
 
-    if not symbol:
+    st.subheader(
+        f"📈 {display_name}｜K線與技術指標"
+    )
 
-        st.info(
-            "請輸入台股代號"
+    df = get_history(
+        symbol,
+        period_years,
+    )
+
+    if df.empty:
+
+        st.error(
+            "無法取得股票資料。"
         )
 
     else:
 
-        df = get_yf_history(
-            symbol,
-            period_years
+        ind = add_indicators(df)
+
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.04,
+            row_heights=[
+                0.72,
+                0.28,
+            ],
         )
 
-        if df.empty:
+        fig.add_trace(
+            go.Candlestick(
+                x=ind.index,
+                open=ind["Open"],
+                high=ind["High"],
+                low=ind["Low"],
+                close=ind["Close"],
+                name="K線",
+            ),
+            row=1,
+            col=1,
+        )
 
-            st.error(
-                f"找不到 {symbol} 的台股資料"
+        ma_specs = [
+            ("MA5", "#8E44AD"),
+            ("MA20", "#E67E22"),
+            ("MA60", "#27AE60"),
+            ("MA120", "#2980B9"),
+            ("MA240", "#7F8C8D"),
+        ]
+
+        for ma, color in ma_specs:
+
+            fig.add_trace(
+                go.Scatter(
+                    x=ind.index,
+                    y=ind[ma],
+                    mode="lines",
+                    name=ma,
+                    line=dict(
+                        color=color,
+                        width=1.2,
+                    ),
+                ),
+                row=1,
+                col=1,
             )
 
-        else:
+        fig.add_trace(
+            go.Bar(
+                x=ind.index,
+                y=ind["Volume"],
+                name="成交量",
+            ),
+            row=2,
+            col=1,
+        )
 
-            data = indicators(df)
+        fig.update_layout(
+            template="plotly_white",
+            height=650,
+            xaxis_rangeslider_visible=False,
+            hovermode="x unified",
+            margin=dict(
+                l=5,
+                r=5,
+                t=25,
+                b=20,
+            ),
+            legend=dict(
+                orientation="h",
+                y=1.02,
+                x=0,
+            ),
+        )
 
-            latest = data.iloc[-1]
+        fig.update_yaxes(
+            side="right"
+        )
 
-            previous = (
-                data.iloc[-2]
-                if len(data) > 1
-                else latest
-            )
+        fig.update_xaxes(
+            side="bottom"
+        )
 
-            st.subheader(
-                f"{symbol} {stock_name}".strip()
-            )
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+            },
+        )
 
-            change = (
-                float(latest["Close"])
-                - float(previous["Close"])
-            )
-
-            pct = (
-                change
-                / float(previous["Close"])
-                * 100
-                if float(previous["Close"]) != 0
-                else 0
-            )
-
-            c1, c2, c3, c4 = st.columns(4)
-
-            c1.metric(
-                "最新價格",
-                nt(latest["Close"]),
-                f"{change:+.2f} ({pct:+.2f}%)"
-            )
-
-            c2.metric(
+        indicator = st.radio(
+            "下方指標",
+            [
                 "成交量",
-                f"{int(latest['Volume']):,} 股"
-            )
-
-            c3.metric(
-                "K / D",
-                (
-                    f"{latest['K']:.2f} / "
-                    f"{latest['D']:.2f}"
-                    if pd.notna(latest["K"])
-                    and pd.notna(latest["D"])
-                    else "—"
-                )
-            )
-
-            c4.metric(
+                "KD 指標",
+                "MACD",
                 "RSI",
-                (
-                    f"{latest['RSI']:.2f}"
-                    if pd.notna(latest["RSI"])
-                    else "—"
+                "主力 vs 散戶",
+                "三大法人",
+            ],
+            horizontal=True,
+        )
+
+        # ----------------------------------------------------
+        # 成交量
+        # ----------------------------------------------------
+
+        if indicator == "成交量":
+
+            f = go.Figure()
+
+            f.add_trace(
+                go.Bar(
+                    x=ind.index,
+                    y=ind["Volume"],
+                    name="成交量",
                 )
             )
 
+            f.update_layout(
+                template="plotly_white",
+                height=300,
+                hovermode="x unified",
+                yaxis=dict(
+                    side="right"
+                ),
+                xaxis=dict(
+                    side="bottom"
+                ),
+            )
+
             st.plotly_chart(
-                create_kline_chart(data),
+                f,
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
                     "responsive": True,
-                    "scrollZoom": False,
-                    "doubleClick": False
-                }
+                },
             )
 
-            st.subheader(
-                "KD 指標"
+        # ----------------------------------------------------
+        # KD
+        # ----------------------------------------------------
+
+        elif indicator == "KD 指標":
+
+            f = go.Figure()
+
+            f.add_trace(
+                go.Scatter(
+                    x=ind.index,
+                    y=ind["K"],
+                    mode="lines",
+                    name="K",
+                )
+            )
+
+            f.add_trace(
+                go.Scatter(
+                    x=ind.index,
+                    y=ind["D"],
+                    mode="lines",
+                    name="D",
+                )
+            )
+
+            f.add_hline(
+                y=80,
+                line_dash="dot",
+            )
+
+            f.add_hline(
+                y=20,
+                line_dash="dot",
+            )
+
+            f.update_layout(
+                template="plotly_white",
+                height=320,
+                title="KD 指標",
+                hovermode="x unified",
+                yaxis=dict(
+                    side="right",
+                    range=[
+                        0,
+                        100,
+                    ],
+                ),
+                xaxis=dict(
+                    side="bottom"
+                ),
             )
 
             st.plotly_chart(
-                create_kd_chart(data),
+                f,
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
                     "responsive": True,
-                    "scrollZoom": False,
-                    "doubleClick": False
-                }
+                },
             )
 
-            # =================================================
-            # 主力 vs 散戶
-            # =================================================
+        # ----------------------------------------------------
+        # MACD
+        # ----------------------------------------------------
 
-            st.subheader(
-                "主力 vs 散戶"
+        elif indicator == "MACD":
+
+            f = go.Figure()
+
+            f.add_trace(
+                go.Bar(
+                    x=ind.index,
+                    y=ind[
+                        "MACD_HIST"
+                    ],
+                    name="柱狀體",
+                )
             )
 
-            if not finmind_token:
+            f.add_trace(
+                go.Scatter(
+                    x=ind.index,
+                    y=ind["DIF"],
+                    mode="lines",
+                    name="DIF",
+                )
+            )
+
+            f.add_trace(
+                go.Scatter(
+                    x=ind.index,
+                    y=ind["MACD"],
+                    mode="lines",
+                    name="MACD",
+                )
+            )
+
+            f.update_layout(
+                template="plotly_white",
+                height=320,
+                title="MACD",
+                hovermode="x unified",
+                yaxis=dict(
+                    side="right"
+                ),
+                xaxis=dict(
+                    side="bottom"
+                ),
+            )
+
+            st.plotly_chart(
+                f,
+                use_container_width=True,
+                config={
+                    "displayModeBar": False,
+                    "responsive": True,
+                },
+            )
+
+        # ----------------------------------------------------
+        # RSI
+        # ----------------------------------------------------
+
+        elif indicator == "RSI":
+
+            f = go.Figure()
+
+            f.add_trace(
+                go.Scatter(
+                    x=ind.index,
+                    y=ind["RSI"],
+                    mode="lines",
+                    name="RSI",
+                )
+            )
+
+            f.add_hline(
+                y=70,
+                line_dash="dot",
+            )
+
+            f.add_hline(
+                y=30,
+                line_dash="dot",
+            )
+
+            f.update_layout(
+                template="plotly_white",
+                height=320,
+                title="RSI",
+                hovermode="x unified",
+                yaxis=dict(
+                    side="right",
+                    range=[
+                        0,
+                        100,
+                    ],
+                ),
+                xaxis=dict(
+                    side="bottom"
+                ),
+            )
+
+            st.plotly_chart(
+                f,
+                use_container_width=True,
+                config={
+                    "displayModeBar": False,
+                    "responsive": True,
+                },
+            )
+
+        # ----------------------------------------------------
+        # 主力 vs 散戶
+        # ----------------------------------------------------
+
+        elif indicator == "主力 vs 散戶":
+
+            st.markdown(
+                "### 🏦 主力買賣超 vs 散戶買賣超"
+            )
+
+            token = st.text_input(
+                "FinMind API Token（此資料需具備對應權限）",
+                type="password",
+                key="chip_token",
+            )
+
+            end_date = (
+                datetime.now().date()
+            )
+
+            start_date = (
+                end_date
+                - timedelta(days=90)
+            )
+
+            branch = get_branch_agg(
+                symbol,
+                str(start_date),
+                str(end_date),
+                token,
+            )
+
+            chip = calculate_main_retail(
+                branch
+            )
+
+            if chip.empty:
 
                 st.warning(
-                    "未輸入 FinMind Token，因此不會用成交量自行猜測主力／散戶。"
-                    "填入具券商分點資料權限的 Token 後才會顯示。"
+                    "目前沒有取得分點資料。"
+                    "請輸入具備對應權限的 FinMind Token。"
                 )
 
             else:
 
-                try:
+                f = make_subplots(
+                    rows=2,
+                    cols=1,
+                    shared_xaxes=True,
+                    vertical_spacing=0.08,
+                    row_heights=[
+                        0.55,
+                        0.45,
+                    ],
+                )
 
-                    chip = build_chip_data(
-                        symbol,
-                        finmind_token,
-                        days=60,
-                        top_n=15
-                    )
+                f.add_trace(
+                    go.Bar(
+                        x=chip["date"],
+                        y=chip["Main"],
+                        name="主力買賣超",
+                    ),
+                    row=1,
+                    col=1,
+                )
 
-                    if chip.empty:
+                f.add_trace(
+                    go.Bar(
+                        x=chip["date"],
+                        y=chip["Retail"],
+                        name="散戶買賣超（估計）",
+                    ),
+                    row=1,
+                    col=1,
+                )
 
-                        st.info(
-                            "目前查不到此股票的券商分點資料，"
-                            "或目前 Token 沒有分點資料權限。"
-                        )
+                f.add_trace(
+                    go.Scatter(
+                        x=chip["date"],
+                        y=chip["MainCum"],
+                        mode="lines",
+                        name="主力累計",
+                    ),
+                    row=2,
+                    col=1,
+                )
 
-                    else:
+                f.add_trace(
+                    go.Scatter(
+                        x=chip["date"],
+                        y=chip["RetailCum"],
+                        mode="lines",
+                        name="散戶累計",
+                    ),
+                    row=2,
+                    col=1,
+                )
 
-                        latest_chip = chip.iloc[-1]
+                f.add_hline(
+                    y=0,
+                    line_dash="dot",
+                    row=1,
+                    col=1,
+                )
 
-                        a, b, c = st.columns(3)
+                f.update_layout(
+                    template="plotly_white",
+                    height=560,
+                    hovermode="x unified",
+                    barmode="relative",
+                    margin=dict(
+                        l=5,
+                        r=5,
+                        t=25,
+                        b=20,
+                    ),
+                )
 
-                        a.metric(
-                            "今日主力買賣超",
-                            f"{latest_chip['Main']:+,.0f} 張"
-                        )
+                f.update_yaxes(
+                    side="right"
+                )
 
-                        b.metric(
-                            "今日散戶買賣超（估算）",
-                            f"{latest_chip['Retail']:+,.0f} 張"
-                        )
+                f.update_xaxes(
+                    side="bottom"
+                )
 
-                        c.metric(
-                            "主力累計",
-                            f"{latest_chip['MainCum']:+,.0f} 張"
-                        )
+                st.plotly_chart(
+                    f,
+                    use_container_width=True,
+                    config={
+                        "displayModeBar": False,
+                        "responsive": True,
+                    },
+                )
 
-                        st.plotly_chart(
-                            create_chip_chart(chip),
-                            use_container_width=True,
-                            config={
-                                "displayModeBar": False,
-                                "responsive": True
-                            }
-                        )
+                st.caption(
+                    "主力／散戶是分點交易結構推估；"
+                    "散戶並非直接觀察個別自然人帳戶，"
+                    "因此僅作參考。"
+                )
 
-                        st.caption(
-                            "主力：前15大買超分點與前15大賣超分點的淨買賣超。"
-                            "散戶：依排除主力分點後的買賣家數與成交量推估，"
-                            "不是直接辨識個別散戶帳戶。"
-                        )
+        # ----------------------------------------------------
+        # 三大法人
+        # ----------------------------------------------------
 
-                except Exception as e:
+        else:
 
-                    st.error(
-                        f"券商分點資料取得失敗：{e}"
-                    )
-
-            # =================================================
-            # 三大法人
-            # =================================================
-
-            st.subheader(
-                "三大法人"
+            inst = get_institutional(
+                symbol,
+                str(
+                    datetime.now().date()
+                    - timedelta(days=90)
+                ),
+                str(
+                    datetime.now().date()
+                ),
             )
 
-            if not finmind_token:
+            inst = prepare_institutional(
+                inst
+            )
 
-                st.info(
-                    "填入 FinMind Token 後可顯示三大法人。"
+            if inst.empty:
+
+                st.warning(
+                    "目前無法取得三大法人資料。"
                 )
 
             else:
 
-                try:
+                f = go.Figure()
 
-                    end_date = pd.Timestamp.today()
+                for col in [
+                    "外資",
+                    "投信",
+                    "自營商",
+                ]:
 
-                    start_date = (
-                        end_date
-                        - pd.Timedelta(
-                            days=int(
-                                period_years
-                                * 366
-                            )
+                    f.add_trace(
+                        go.Bar(
+                            x=inst["date"],
+                            y=inst[col],
+                            name=col,
                         )
                     )
 
-                    institutional = get_institutional(
-                        symbol,
-                        start_date.strftime(
-                            "%Y-%m-%d"
-                        ),
-                        end_date.strftime(
-                            "%Y-%m-%d"
-                        ),
-                        finmind_token
-                    )
+                f.update_layout(
+                    template="plotly_white",
+                    height=360,
+                    barmode="relative",
+                    hovermode="x unified",
+                    yaxis=dict(
+                        side="right"
+                    ),
+                    xaxis=dict(
+                        side="bottom"
+                    ),
+                )
 
-                    if not institutional.empty:
-
-                        institutional["date"] = (
-                            pd.to_datetime(
-                                institutional["date"]
-                            )
-                        )
-
-                        institutional = (
-                            institutional
-                            .set_index("date")
-                        )
-
-                        def net_column(
-                            buy_column,
-                            sell_column
-                        ):
-
-                            buy = pd.to_numeric(
-                                institutional.get(
-                                    buy_column,
-                                    0
-                                ),
-                                errors="coerce"
-                            ).fillna(0)
-
-                            sell = pd.to_numeric(
-                                institutional.get(
-                                    sell_column,
-                                    0
-                                ),
-                                errors="coerce"
-                            ).fillna(0)
-
-                            return (
-                                buy - sell
-                            ) / 1000
-
-                        institutional["外資"] = (
-                            net_column(
-                                "Foreign_Investor_buy",
-                                "Foreign_Investor_sell"
-                            )
-                        )
-
-                        institutional["投信"] = (
-                            net_column(
-                                "Investment_Trust_buy",
-                                "Investment_Trust_sell"
-                            )
-                        )
-
-                        institutional["自營商"] = (
-                            net_column(
-                                "Dealer_self_buy",
-                                "Dealer_self_sell"
-                            )
-                            + net_column(
-                                "Dealer_Hedging_buy",
-                                "Dealer_Hedging_sell"
-                            )
-                            + net_column(
-                                "Dealer_buy",
-                                "Dealer_sell"
-                            )
-                        )
-
-                        fig = go.Figure()
-
-                        for name, color in [
-                            ("外資", "#1565C0"),
-                            ("投信", "#E53935"),
-                            ("自營商", "#43A047")
-                        ]:
-
-                            fig.add_trace(
-                                go.Bar(
-                                    x=institutional.index,
-                                    y=institutional[name],
-                                    name=name,
-                                    marker_color=color
-                                )
-                            )
-
-                        fig.update_layout(
-                            barmode="group",
-                            height=380,
-                            paper_bgcolor="white",
-                            plot_bgcolor="white",
-                            hovermode="x unified",
-                            margin=dict(
-                                l=8,
-                                r=55,
-                                t=25,
-                                b=20
-                            )
-                        )
-
-                        fig.update_yaxes(
-                            side="right",
-                            title="張"
-                        )
-
-                        st.plotly_chart(
-                            fig,
-                            use_container_width=True,
-                            config={
-                                "displayModeBar": False,
-                                "responsive": True
-                            }
-                        )
-
-                    else:
-
-                        st.info(
-                            "查無三大法人資料"
-                        )
-
-                except Exception as e:
-
-                    st.warning(
-                        f"三大法人資料暫時無法取得：{e}"
-                    )
+                st.plotly_chart(
+                    f,
+                    use_container_width=True,
+                    config={
+                        "displayModeBar": False,
+                        "responsive": True,
+                    },
+                )
 
 
-# =========================================================
-# TAB 3：智慧型態選股
-# =========================================================
+# ============================================================
+# Tab 3：智慧型態選股
+# ============================================================
 
-with tab3:
+with tab_scan:
 
     st.subheader(
         "🔍 智慧型態選股"
     )
 
-    pattern = st.radio(
-        "型態",
-        [
-            "突破區間整理（箱型突破）",
-            "頭肩底（買入訊號）",
-            "頭肩頂（賣出訊號）"
-        ],
-        horizontal=True
+    st.info(
+        "四級條件已重新配置；"
+        "「嚴格」就是你這次提供的新版條件："
+        "60 日箱型、20% 最大振幅、突破 0～5%、"
+        "成交量 1.3 倍，以及頭肩型態最近 20 日、"
+        "左右肩差異 <10%。"
     )
+
+    # --------------------------------------------------------
+    # 選股範圍
+    # --------------------------------------------------------
 
     universe = st.radio(
-        "掃描範圍",
+        "選股範圍",
         [
-            "常用個股管理",
-            "市值前500大",
-            "自訂台股清單"
+            "常用個股",
+            "市值 Top 500",
+            "自訂清單",
         ],
-        horizontal=True
+        horizontal=True,
     )
 
-    # =====================================================
-    # 常用個股
-    # =====================================================
+    if universe == "常用個股":
 
-    if universe == "常用個股管理":
+        codes = COMMON_STOCKS
 
-        stock_text = st.text_area(
-            "常用個股管理（全部保留）",
-            value=", ".join(
-                DEFAULT_STOCKS
-            ),
-            height=150
+    elif universe == "市值 Top 500":
+
+        codes = (
+            get_market_value_top500()
         )
 
-        watchlist = list(
-            dict.fromkeys(
-                [
-                    normalize_code(x)
-                    for x in stock_text.split(",")
-                    if normalize_code(x)
-                ]
+        if not codes:
+
+            st.warning(
+                "目前無法取得市值 Top 500；"
+                "請改用常用個股或自訂清單。"
             )
-        )
-
-    # =====================================================
-    # 自訂清單
-    # =====================================================
-
-    elif universe == "自訂台股清單":
-
-        stock_text = st.text_area(
-            "台股代號清單",
-            value=", ".join(
-                DEFAULT_STOCKS[:60]
-            ),
-            height=150
-        )
-
-        watchlist = list(
-            dict.fromkeys(
-                [
-                    normalize_code(x)
-                    for x in stock_text.split(",")
-                    if normalize_code(x)
-                ]
-            )
-        )
-
-    # =====================================================
-    # 市值前500
-    # =====================================================
 
     else:
 
-        watchlist = []
+        custom = st.text_area(
+            "自訂股票代號",
+            "2330,2454,2308,2317",
+            help=(
+                "可用逗號、空白或換行分隔，"
+                "不需要 .TW"
+            ),
+        )
 
-        if not finmind_token:
+        codes = [
+            normalize_code(x)
+            for x in custom
+            .replace(",", " ")
+            .replace("，", " ")
+            .split()
+            if normalize_code(x)
+        ]
 
-            st.warning(
-                "市值前500需要 FinMind Token。"
-            )
+    # --------------------------------------------------------
+    # 四級嚴格程度
+    # --------------------------------------------------------
 
-        else:
-
-            try:
-
-                market_value = (
-                    get_market_value_top500(
-                        finmind_token
-                    )
-                )
-
-                if not market_value.empty:
-
-                    watchlist = (
-                        market_value["stock_id"]
-                        .astype(str)
-                        .str.zfill(4)
-                        .tolist()
-                    )
-
-                    st.success(
-                        f"取得 {len(watchlist)} 檔市值前500大標的；"
-                        f"資料日："
-                        f"{market_value['date'].max().strftime('%Y-%m-%d')}"
-                    )
-
-                else:
-
-                    st.warning(
-                        "無法取得市值前500資料，"
-                        "請確認 Token 的會員權限。"
-                    )
-
-            except Exception as e:
-
-                st.error(
-                    f"市值前500取得失敗：{e}"
-                )
-
-    # =====================================================
-    # 選股強度
-    # =====================================================
-
-    st.markdown(
-        "### 🎯 選股強度"
-    )
-
-    strength = st.select_slider(
-        "快速調整",
-        options=[
+    strength = st.radio(
+        "篩選嚴格程度",
+        [
             "寬鬆",
             "標準",
             "嚴格",
-            "極嚴格"
+            "極嚴格",
         ],
-        value="嚴格"
+        index=2,
+        horizontal=True,
     )
 
-    presets = {
+    preset = PRESETS[strength]
 
-        "寬鬆": {
-            "box_days": 20,
-            "box_width": 0.20,
-            "breakout": 0.005,
-            "volume": 1.00,
-            "shoulder": 0.12,
-            "head": 0.03,
-            "gap": 4,
-            "neck": 0.00
-        },
+    st.markdown(
+        "### 🔧 進階參數"
+    )
 
-        "標準": {
-            "box_days": 30,
-            "box_width": 0.15,
-            "breakout": 0.010,
-            "volume": 1.10,
-            "shoulder": 0.08,
-            "head": 0.04,
-            "gap": 5,
-            "neck": 0.005
-        },
+    # 使用不同 key 綁定四級，
+    # 切換級別時會真正載入該級預設值。
+    box_days = st.slider(
+        "箱型整理天數",
+        20,
+        100,
+        int(
+            preset["box_days"]
+        ),
+        5,
+        key=f"box_days_{strength}",
+    )
 
-        "嚴格": {
-            "box_days": 40,
-            "box_width": 0.10,
-            "breakout": 0.020,
-            "volume": 1.30,
-            "shoulder": 0.06,
-            "head": 0.06,
-            "gap": 7,
-            "neck": 0.010
-        },
+    box_width_pct = st.slider(
+        "箱型最大振幅 (%)",
+        5.0,
+        35.0,
+        preset["box_width"] * 100,
+        0.5,
+        key=f"box_width_{strength}",
+    )
 
-        "極嚴格": {
-            "box_days": 60,
-            "box_width": 0.08,
-            "breakout": 0.030,
-            "volume": 1.50,
-            "shoulder": 0.04,
-            "head": 0.08,
-            "gap": 10,
-            "neck": 0.020
-        }
+    breakout_pct = st.slider(
+        "突破後最大漲幅 (%)",
+        1.0,
+        10.0,
+        preset["breakout_pct"] * 100,
+        0.5,
+        key=f"breakout_{strength}",
+    )
+
+    vol_mult = st.slider(
+        "突破成交量 / 20日均量",
+        1.0,
+        2.5,
+        preset["vol_mult"],
+        0.1,
+        key=f"vol_{strength}",
+    )
+
+    shoulder_diff_pct = st.slider(
+        "頭肩左右肩最大差異 (%)",
+        3.0,
+        20.0,
+        preset["shoulder_diff"] * 100,
+        0.5,
+        key=f"shoulder_{strength}",
+    )
+
+    right_window = st.slider(
+        "右肩／右底距今最多天數",
+        10,
+        45,
+        int(
+            preset["right_window"]
+        ),
+        1,
+        key=f"right_{strength}",
+    )
+
+    neckline_buffer_pct = st.slider(
+        "頸線附近允許幅度 (%)",
+        1.0,
+        10.0,
+        preset["neckline_buffer"] * 100,
+        0.5,
+        key=f"neckline_{strength}",
+    )
+
+    params = {
+        "box_days":
+            box_days,
+        "box_width":
+            box_width_pct / 100,
+        "breakout_pct":
+            breakout_pct / 100,
+        "vol_mult":
+            vol_mult,
+        "shoulder_diff":
+            shoulder_diff_pct / 100,
+        "right_window":
+            right_window,
+        "neckline_buffer":
+            neckline_buffer_pct / 100,
     }
 
-    preset = presets[strength]
-
-    # =====================================================
-    # 進階參數
-    # =====================================================
+    # --------------------------------------------------------
+    # 實際參數表
+    # --------------------------------------------------------
 
     with st.expander(
-        "⚙️ 進階參數（可以自行微調）",
-        expanded=False
+        "📋 目前實際篩選參數",
+        expanded=False,
     ):
 
-        box_days = st.slider(
-            "箱型整理天數",
-            10,
-            90,
-            preset["box_days"],
-            5
+        parameter_df = pd.DataFrame(
+            {
+                "參數": [
+                    "箱型整理天數",
+                    "箱型最大振幅",
+                    "突破後最大漲幅",
+                    "突破量能倍數",
+                    "左右肩最大差異",
+                    "右肩／右底距今最多天數",
+                    "頸線附近允許幅度",
+                ],
+                "目前值": [
+                    f"{box_days} 日",
+                    f"{box_width_pct:.1f}%",
+                    f"{breakout_pct:.1f}%",
+                    f"{vol_mult:.1f} 倍",
+                    f"{shoulder_diff_pct:.1f}%",
+                    f"{right_window} 日",
+                    f"{neckline_buffer_pct:.1f}%",
+                ],
+            }
         )
 
-        box_width = st.slider(
-            "箱型最大振幅",
-            0.05,
-            0.30,
-            preset["box_width"],
-            0.01,
-            format="%.0f%%"
+        st.dataframe(
+            parameter_df,
+            use_container_width=True,
+            hide_index=True,
         )
 
-        breakout = st.slider(
-            "突破幅度",
-            0.0,
-            0.10,
-            preset["breakout"],
-            0.005,
-            format="%.1f%%"
-        )
-
-        volume_multiplier = st.slider(
-            "成交量放大倍數",
-            0.8,
-            3.0,
-            preset["volume"],
-            0.1,
-            format="%.1fx"
-        )
-
-        shoulder_tolerance = st.slider(
-            "左右肩最大差異",
-            0.02,
-            0.20,
-            preset["shoulder"],
-            0.01,
-            format="%.0f%%"
-        )
-
-        head_depth = st.slider(
-            "頭部至少超過／低於肩膀",
-            0.02,
-            0.20,
-            preset["head"],
-            0.01,
-            format="%.0f%%"
-        )
-
-        min_gap = st.slider(
-            "左右肩／頭最小間隔",
-            3,
-            30,
-            preset["gap"],
-            1
-        )
-
-        neckline_break = st.slider(
-            "頸線突破／跌破幅度",
-            0.0,
-            0.10,
-            preset["neck"],
-            0.005,
-            format="%.1f%%"
-        )
-
-    scan_years = st.select_slider(
-        "型態掃描資料",
-        options=[
-            0.5,
-            1.0,
-            1.5,
-            2.0
-        ],
-        value=1.0
+    st.caption(
+        f"目前預設：{strength}。"
+        "「嚴格」已直接採用本次新版條件。"
     )
 
-    # =====================================================
+    # --------------------------------------------------------
     # 開始掃描
-    # =====================================================
+    # --------------------------------------------------------
 
     if st.button(
-        "🚀 開始型態掃描",
-        type="primary"
+        "🚀 開始智慧型態掃描",
+        type="primary",
+        use_container_width=True,
     ):
 
-        if not watchlist:
+        if not codes:
 
-            st.error(
-                "沒有可掃描的股票"
+            st.warning(
+                "沒有可掃描的股票。"
             )
 
         else:
 
-            results = []
-
-            failed = 0
-
-            progress = st.progress(
-                0,
-                text="正在掃描…"
+            st.write(
+                f"正在掃描 {len(codes)} 檔股票……"
             )
 
-            for index, ticker in enumerate(
-                watchlist
-            ):
+            result = run_scan(
+                codes,
+                params,
+            )
 
-                try:
+            if result.empty:
 
-                    data = get_yf_history(
-                        ticker,
-                        scan_years
-                    )
-
-                    minimum_length = max(
-                        70,
-                        box_days + 5
-                    )
-
-                    if len(data) >= minimum_length:
-
-                        if pattern.startswith(
-                            "突破"
-                        ):
-
-                            matched = (
-                                detect_box_breakout(
-                                    data,
-                                    box_days,
-                                    box_width,
-                                    breakout,
-                                    volume_multiplier
-                                )
-                            )
-
-                        elif pattern.startswith(
-                            "頭肩底"
-                        ):
-
-                            matched = (
-                                detect_head_shoulders_bottom(
-                                    data,
-                                    shoulder_tolerance,
-                                    head_depth,
-                                    min_gap,
-                                    neckline_break
-                                )
-                            )
-
-                        else:
-
-                            matched = (
-                                detect_head_shoulders_top(
-                                    data,
-                                    shoulder_tolerance,
-                                    head_depth,
-                                    min_gap,
-                                    neckline_break
-                                )
-                            )
-
-                        if matched:
-
-                            latest_price = float(
-                                data["Close"].iloc[-1]
-                            )
-
-                            results.append(
-                                {
-                                    "代號": ticker,
-                                    "股票名稱":
-                                        name_map.get(
-                                            ticker,
-                                            "—"
-                                        ),
-                                    "最新價格":
-                                        nt(
-                                            latest_price
-                                        ),
-                                    "日期":
-                                        data.index[-1]
-                                        .strftime(
-                                            "%Y/%m/%d"
-                                        )
-                                }
-                            )
-
-                except Exception:
-
-                    failed += 1
-
-                progress.progress(
-                    (index + 1)
-                    / len(watchlist),
-                    text=(
-                        f"正在掃描 "
-                        f"{index + 1}/"
-                        f"{len(watchlist)}"
-                    )
-                )
-
-            progress.empty()
-
-            if results:
-
-                st.success(
-                    f"找到 {len(results)} 檔符合"
-                    f"「{pattern}」；"
-                    f"強度：{strength}"
-                )
-
-                st.dataframe(
-                    pd.DataFrame(results),
-                    use_container_width=True,
-                    hide_index=True
+                st.warning(
+                    "目前沒有符合條件的股票；"
+                    "可切換「標準」或「寬鬆」擴大範圍。"
                 )
 
             else:
 
-                st.info(
-                    "目前沒有符合條件的標的。"
-                    "可以把強度調成「寬鬆」，"
-                    "或在進階參數放寬條件。"
+                result = (
+                    result
+                    .sort_values(
+                        [
+                            "訊號數",
+                            "股票代號",
+                        ],
+                        ascending=[
+                            False,
+                            True,
+                        ],
+                    )
+                    .reset_index(
+                        drop=True
+                    )
                 )
 
-            if failed:
+                st.success(
+                    f"掃描完成，共找到 "
+                    f"{len(result)} 檔符合至少一項型態。"
+                )
+
+                result["股票"] = (
+                    result["股票代號"]
+                    + " "
+                    + result["股票名稱"]
+                ).str.strip()
+
+                display_columns = [
+                    "股票",
+                    "最新收盤",
+                    "箱型突破",
+                    "頭肩底",
+                    "頭肩頂",
+                    "訊號數",
+                    "箱型振幅",
+                    "突破量比",
+                ]
+
+                st.dataframe(
+                    result[
+                        display_columns
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
                 st.caption(
-                    f"有 {failed} 檔資料取得失敗，"
-                    "已自動略過。"
+                    "型態訊號僅為技術分析輔助，"
+                    "不代表必然上漲或下跌；"
+                    "建議搭配成交量、均線、法人"
+                    "與大盤環境判斷。"
                 )
+
+
+# ============================================================
+# Footer
+# ============================================================
+
+st.markdown("---")
+
+st.caption(
+    "資料主要來自 Yahoo Finance；"
+    "股票名稱與部分籌碼資料使用 FinMind。"
+    "資料可能因來源、權限、更新時間或網路狀況有所延遲。"
+)
