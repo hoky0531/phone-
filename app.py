@@ -1686,7 +1686,7 @@ def _quick_stock_button(code):
         st.session_state["active_tab"] = "📊 樂活五線譜"
         st.rerun()
 
-with st.sidebar.expander("⭐ 常用股票列表", expanded=True):
+with st.sidebar.expander("⭐ 持股列表", expanded=True):
     for _code in COMMON_STOCKS:
         _quick_stock_button(_code)
 
@@ -2250,7 +2250,7 @@ if active_tab == "🔍 智慧型態選股":
         stock_text = st.text_area(
             "常用個股管理（全部保留）",
             value=", ".join(
-                COMMON_STOCKS
+                DEFAULT_STOCKS
             ),
             height=150
         )
