@@ -2513,50 +2513,85 @@ if active_tab == "🔍 智慧型態選股":
 
             progress.empty()
 
-            if results:
+            # 將掃描結果保留在 session_state。
+            # 這樣使用者點擊股票列表時，Streamlit rerun 後仍可正確切換股票。
+            st.session_state["pattern_scan_results"] = results
+            st.session_state["pattern_scan_failed"] = failed
+            st.session_state["pattern_scan_title"] = (
+                f"找到 {len(results)} 檔符合「{pattern}」；強度：{strength}"
+            )
 
-                st.success(
-                    f"找到 {len(results)} 檔符合「{pattern}」；"
-                    f"強度：{strength}"
+    # =====================================================
+    # 型態掃描結果
+    # =====================================================
+    # 不再另外建立「查看樂活五線譜」按鈕。
+    # 直接點擊下方結果表格中的「代號」或「股票名稱」所在列，
+    # 即可切換到該股票的樂活五線譜。
+    scan_results = st.session_state.get(
+        "pattern_scan_results",
+        []
+    )
+    scan_failed = st.session_state.get(
+        "pattern_scan_failed",
+        0
+    )
+
+    if scan_results:
+
+        st.success(
+            st.session_state.get(
+                "pattern_scan_title",
+                f"找到 {len(scan_results)} 檔型態符合標的"
+            )
+        )
+
+        results_df = pd.DataFrame(scan_results)
+
+        st.caption(
+            "請直接點擊下方股票的「代號」或「股票名稱」所在列，"
+            "系統會自動切換到該股票的「樂活五線譜」，"
+            "並同步更新左側台股代號。"
+        )
+
+        selection_event = st.dataframe(
+            results_df,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="pattern_results_table",
+        )
+
+        selected_rows = (
+            selection_event.selection.rows
+            if selection_event is not None
+            else []
+        )
+
+        if selected_rows:
+
+            selected_index = selected_rows[0]
+
+            if 0 <= selected_index < len(results_df):
+
+                selected_code = normalize_code(
+                    results_df.iloc[selected_index]["代號"]
                 )
 
-                results_df = pd.DataFrame(results)
-                st.caption(
-                    "點擊下方「查看樂活五線譜」即可切換到該股票，並同步更新左側股票代號。"
-                )
+                st.session_state["symbol_input"] = selected_code
+                st.session_state["active_tab"] = "📊 樂活五線譜"
 
-                # dataframe 本身不適合直接完成「更新股票 + 切換分頁」，
-                # 因此每一筆型態結果提供一個明確的切換按鈕。
-                for result_index, result_row in results_df.iterrows():
-                    result_code = normalize_code(result_row["代號"])
-                    result_name = result_row["股票名稱"]
-                    button_label = (
-                        f"📊 查看樂活五線譜｜{result_code} {result_name}"
-                    ).strip()
-                    if st.button(
-                        button_label,
-                        key=f"pattern_to_lohas_{result_code}_{result_index}",
-                        use_container_width=True
-                    ):
-                        st.session_state["symbol_input"] = result_code
-                        st.session_state["active_tab"] = "📊 樂活五線譜"
-                        st.rerun()
+                st.rerun()
 
-                st.dataframe(
-                    results_df,
-                    use_container_width=True,
-                    hide_index=True
-                )
+    elif "pattern_scan_results" in st.session_state:
 
-            else:
+        st.info(
+            "目前沒有符合型態條件的標的。"
+        )
 
-                st.info(
-                    f"目前沒有符合「{pattern}」且強度為「{strength}」的標的。"
-                )
+    if scan_failed:
 
-            if failed:
-
-                st.caption(
-                    f"有 {failed} 檔資料取得失敗，已自動略過。"
-                )
+        st.caption(
+            f"有 {scan_failed} 檔資料取得失敗，已自動略過。"
+        )
 
