@@ -85,8 +85,19 @@ st.markdown("""
     /* 手機上縮短圖表高度，減少單次滑動需要經過的圖表區域 */
     [data-testid="stPlotlyChart"] iframe {
         max-height: 480px;
-        touch-action: pan-y;
     }
+
+    /* 手機滑動時以頁面垂直捲動為優先，避免圖表攔截手勢 */
+    [data-testid="stPlotlyChart"],
+    [data-testid="stPlotlyChart"] > div,
+    [data-testid="stPlotlyChart"] iframe {
+        touch-action: pan-y !important;
+    }
+}
+
+/* 所有尺寸都不讓圖表以觸控手勢取代頁面垂直捲動 */
+[data-testid="stPlotlyChart"] iframe {
+    touch-action: pan-y !important;
 }
 
 /* 桌面與手機都保留清楚的圖表外框 */
@@ -127,6 +138,28 @@ DEFAULT_STOCKS = list(
         ]
     )
 )
+
+
+# =========================================================
+# ⭐ 側邊欄快速股票清單
+# =========================================================
+# 未來要新增／移除「常用股票」，直接修改這個清單即可。
+COMMON_STOCKS = [
+    "0050",
+    "0056",
+    "00878",
+    "00919",
+    "00940",
+    "1326",
+    "9921",
+]
+
+# 未來要新增／移除「熱門股票」，直接修改這個清單即可。
+HOT_STOCKS = [
+    "2303",
+    "2308",
+    "2882",
+]
 
 
 # =========================================================
@@ -1640,10 +1673,34 @@ else:
 
 st.sidebar.header("⚙️ 股票設定")
 
+# 快速股票列表：點一下即可切換股票，並自動回到「樂活五線譜」。
+def _quick_stock_button(code):
+    code = normalize_code(code)
+    label = f"{code} {name_map.get(code, '')}".strip()
+    if st.sidebar.button(
+        label,
+        key=f"quick_stock_{code}",
+        use_container_width=True
+    ):
+        st.session_state["symbol_input"] = code
+        st.session_state["active_tab"] = "📊 樂活五線譜"
+        st.rerun()
+
+with st.sidebar.expander("⭐ 常用股票列表", expanded=True):
+    for _code in COMMON_STOCKS:
+        _quick_stock_button(_code)
+
+with st.sidebar.expander("🔥 熱門股票列表", expanded=True):
+    for _code in HOT_STOCKS:
+        _quick_stock_button(_code)
+
+if "symbol_input" not in st.session_state:
+    st.session_state["symbol_input"] = "2330"
+
 symbol = normalize_code(
     st.sidebar.text_input(
         "台股代號（不用輸入 .TW）",
-        "2330"
+        key="symbol_input"
     )
 )
 
@@ -1685,28 +1742,23 @@ stock_name = name_map.get(
     ""
 )
 
-st.sidebar.markdown("---")
-
-st.sidebar.subheader(
-    "📱 手機顯示"
-)
-
-mobile_mode = st.sidebar.checkbox(
-    "手機最佳化模式",
-    value=True
-)
-
-
 # =========================================================
 # 分頁
 # =========================================================
+# 使用可程式控制的分頁選擇器，讓型態選股結果可以直接切回樂活五線譜。
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = "📊 樂活五線譜"
 
-tab1, tab2, tab3 = st.tabs(
+active_tab = st.radio(
+    "功能分頁",
     [
         "📊 樂活五線譜",
         "📈 K線與指標",
         "🔍 智慧型態選股"
-    ]
+    ],
+    key="active_tab",
+    horizontal=True,
+    label_visibility="collapsed"
 )
 
 
@@ -1714,7 +1766,7 @@ tab1, tab2, tab3 = st.tabs(
 # TAB 1：樂活五線譜
 # =========================================================
 
-with tab1:
+if active_tab == "📊 樂活五線譜":
 
     if not symbol:
 
@@ -1805,7 +1857,7 @@ with tab1:
 # TAB 2：K線與指標
 # =========================================================
 
-with tab2:
+if active_tab == "📈 K線與指標":
 
     if not symbol:
 
@@ -2163,7 +2215,7 @@ with tab2:
 # TAB 3：智慧型態選股
 # =========================================================
 
-with tab3:
+if active_tab == "🔍 智慧型態選股":
 
     st.subheader(
         "🔍 智慧型態選股"
@@ -2198,7 +2250,7 @@ with tab3:
         stock_text = st.text_area(
             "常用個股管理（全部保留）",
             value=", ".join(
-                DEFAULT_STOCKS
+                COMMON_STOCKS
             ),
             height=150
         )
@@ -2468,8 +2520,30 @@ with tab3:
                     f"強度：{strength}"
                 )
 
+                results_df = pd.DataFrame(results)
+                st.caption(
+                    "點擊下方「查看樂活五線譜」即可切換到該股票，並同步更新左側股票代號。"
+                )
+
+                # dataframe 本身不適合直接完成「更新股票 + 切換分頁」，
+                # 因此每一筆型態結果提供一個明確的切換按鈕。
+                for result_index, result_row in results_df.iterrows():
+                    result_code = normalize_code(result_row["代號"])
+                    result_name = result_row["股票名稱"]
+                    button_label = (
+                        f"📊 查看樂活五線譜｜{result_code} {result_name}"
+                    ).strip()
+                    if st.button(
+                        button_label,
+                        key=f"pattern_to_lohas_{result_code}_{result_index}",
+                        use_container_width=True
+                    ):
+                        st.session_state["symbol_input"] = result_code
+                        st.session_state["active_tab"] = "📊 樂活五線譜"
+                        st.rerun()
+
                 st.dataframe(
-                    pd.DataFrame(results),
+                    results_df,
                     use_container_width=True,
                     hide_index=True
                 )
